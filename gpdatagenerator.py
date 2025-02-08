@@ -186,7 +186,8 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
                                               cxpb=cxpb, mutpb=mutpb, ngen=ngen, verbose=False)
 
         Xsso = get_oversample(population, halloffame)
-        Xgp.append(Xsso)
+        if len(Xsso) > 0:
+            Xgp.append(Xsso)
     
     if size_sdo > 0.0:
         toolbox_sdo = setup_toolbox(x, feature_values, bb, init=record_init, init_params=x, evaluate=fitness_sdo,
@@ -198,7 +199,8 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
                                               cxpb=cxpb, mutpb=mutpb, ngen=ngen, verbose=False)
 
         Xsdo = get_oversample(population, halloffame)
-        Xgp.append(Xsdo)
+        if len(Xsdo) > 0:
+            Xgp.append(Xsdo)
 
     if size_dso > 0.0:
         toolbox_dso = setup_toolbox(x, feature_values, bb, init=record_init, init_params=x, evaluate=fitness_dso,
@@ -210,7 +212,8 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
                                               cxpb=cxpb, mutpb=mutpb, ngen=ngen, verbose=False)
 
         Xdso = get_oversample(population, halloffame)
-        Xgp.append(Xdso)
+        if len(Xdso) > 0:
+            Xgp.append(Xdso)
 
     if size_ddo > 0.0:
         toolbox_ddo = setup_toolbox(x, feature_values, bb, init=record_init, init_params=x, evaluate=fitness_ddo,
@@ -222,7 +225,9 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
                                               cxpb=cxpb, mutpb=mutpb, ngen=ngen, verbose=False)
 
         Xddo = get_oversample(population, halloffame)
-        Xgp.append(Xddo)
+        if len(Xddo) > 0:
+            Xgp.append(Xddo)
+    print('Xgp', Xgp)
 
     Xgp = np.concatenate((Xgp), axis=0)
 
@@ -230,6 +235,53 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
         return Xgp, logbook
 
     return Xgp
+
+def generate_data_1(x, feature_values, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
+    num_features = len(x)
+    neighbors = []
+
+    for _ in range(population_size):
+        neighbor = x.copy()
+        for i in range(num_features):
+            perturbation = np.random.uniform(-perturbation_ratio, perturbation_ratio)
+            neighbor[i] += perturbation * (feature_values[i].max() - feature_values[i].min())
+            #print('neighbor[i]', neighbor[i])
+        print('neighbor', neighbor)
+        neighbors.append(neighbor)
+
+    neighbors = np.array(neighbors)
+
+    x1, x2, x3 = neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]
+
+
+    # Create a DataFrame for the generated data
+    df = pd.DataFrame({'x1': x1, 'x2': x2, 'x3': x3})
+    return df
+
+def generate_data_ba(x, feature_values, original_columns, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
+    """
+    Sinh các mẫu gần x bằng cách thêm nhiễu dựa trên khoảng biến thiên của từng đặc trưng.
+    - x: vector đặc trưng của mẫu cần giải thích (1D numpy array, kích thước d)
+    - feature_values: danh sách các mảng giá trị của từng đặc trưng (d phần tử, mỗi phần tử là mảng các giá trị)
+    - original_columns: danh sách tên các cột (d phần tử) dùng để tạo DataFrame kết quả
+    """
+    
+    # loại bỏ cột y
+    original_columns = original_columns[:-1]
+    
+    num_features = len(x)
+    neighbors = []
+    for _ in range(population_size):
+        neighbor = x.copy()
+        for i in range(num_features):
+            # Sinh nhiễu ngẫu nhiên theo tỉ lệ perturbation_ratio dựa trên khoảng biến thiên của đặc trưng i
+            perturbation = np.random.uniform(-perturbation_ratio, perturbation_ratio)
+            neighbor[i] += perturbation * (feature_values[i].max() - feature_values[i].min())
+        neighbors.append(neighbor)
+    neighbors = np.array(neighbors)
+    df_generated = pd.DataFrame(neighbors, columns=original_columns)
+    return df_generated
+
 
 
 def calculate_feature_values(X, columns, class_name, discrete, continuous, size=1000,
@@ -261,7 +313,7 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
             new_values = np.concatenate((values, new_values), axis=0)
         
         feature_values[i] = new_values
-        
+    
     return feature_values
 
 

@@ -54,8 +54,10 @@ def label_encode(df, columns, label_encoder=None):
             df_le[col] = le.fit_transform(df_le[col])
             label_encoder[col] = le
         else:
+            print(f"Đang mã hóa cột: {col}")
             le = label_encoder[col]
             df_le[col] = le.transform(df_le[col])
+            print(f"Giá trị sau khi mã hóa: {df[col].unique()}")
     return df_le, label_encoder
 
 
@@ -189,7 +191,10 @@ def build_df2explain(bb, X, dataset):
     label_encoder = dataset['label_encoder']
     
     y = bb.predict(X)
-    yX = np.concatenate((y.reshape(-1, 1), X), axis=1)
+    
+    yX = np.concatenate((X, y.reshape(-1, 1)), axis=1)
+
+
     data = list()
     for i, col in enumerate(columns):
         data_col = yX[:, i]
@@ -206,9 +211,9 @@ def build_df2explain(bb, X, dataset):
 def dataframe2explain(X2E, dataset, idx_record2explain, blackbox):
     # Dataset to explit to perform explanation (typically is the train or test set (real instances))
     Z = cPickle.loads(cPickle.dumps(X2E))
-
     # Select record to predict and explain
     x = Z[idx_record2explain]
+    print('x = %s' % x)
 
     # Remove record to explain (optional) from dataset Z and convert into dataframe
     # Z = np.delete(Z, idx_record2explain, axis=0)

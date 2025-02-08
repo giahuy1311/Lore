@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 def main():
 
     # dataset_name = 'german_credit.csv'
-    path_data = '/home/riccardo/Documenti/PhD/OpenTheBlackBox/LORE/datasets/'
+    path_data = 'datasets/'
     # dataset = prepare_german_dataset(dataset_name, path_data)
 
     dataset_name = 'compas-scores-two-years.csv'
