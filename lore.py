@@ -25,12 +25,7 @@ def explain(idx_record2explain, X2E, dataset, blackbox,
                                                          discrete_use_probabilities, continuous_function_estimation)
 
     dfZ, x = dataframe2explain(X2E, dataset, idx_record2explain, blackbox)
-    
-    print(f"Các cột phân loại (discrete): {discrete}")
-    for col in discrete:
-        print(f"Giá trị ban đầu của cột {col}: {dfZ[col].unique()}")
-
-
+    print('dfZ',dfZ)
     # Generate Neighborhood
     dfZ, Z = ng_function(dfZ, x, blackbox, dataset)
 

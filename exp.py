@@ -51,15 +51,13 @@ def prepare_dataset(df):
     return dataset
 
 def main():
-    np.random.seed(42)
-
-    x1 = np.random.uniform(0, 100, 1000)
-    x2 = np.random.uniform(0, 100, 1000)
-    x3 = np.random.uniform(0, 100, 1000)
+    x1 = np.random.uniform(0, 100, 5000)
+    x2 = np.random.uniform(0, 100, 5000)
+    x3 = np.random.uniform(0, 100, 5000)
     
-    y = np.where((x1 > 35) & (x2 < 43) & (x3*x3 <1499), 1, 0)
+    y = np.where((x1 + 2*x2 - 0.5*x3 > 120) & (x1 * x2 < 1000), 1, 0)
     
-    df = pd.DataFrame({'x1': x1, 'x2':x2, 'x3':x3,'y': y})
+    df = pd.DataFrame({'x1': x1, 'x2':x2, 'x3':x3,'y': y}) 
     
     dataset = prepare_dataset(df) # dùng lại từ lore
     
@@ -73,7 +71,7 @@ def main():
     path_data = 'datasets/'
     idx_record2explain = 2
     X2E = X_test
-
+    print('X2E', X2E)
     # tạo neighbors = cách thêm nhiễu nhỏ random
     explanation, infos = lore.explain(idx_record2explain, X2E, dataset, model,
                                         ng_function=genetic_neighborhood,

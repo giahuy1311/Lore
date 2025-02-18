@@ -49,14 +49,14 @@ def genetic_neighborhood(dfZ, x, blackbox, dataset):
     #                   alpha1=0.5, alpha2=0.5, eta1=1.0, eta2=0.0,  tournsize=3, cxpb=0.5, mutpb=0.2, ngen=10)
     
     #-------- for simple problem x1, x2, x3 -------------------
-    # Z = generate_data_1(x, feature_values)
-    # zy = blackbox.predict(Z)
-    # columns = ['x1'] + ['x2'] + ['x3']
-    # Z = pd.DataFrame(Z, columns=columns)
+    Z = generate_data_1(x, feature_values)
+    zy = blackbox.predict(Z)
+    columns = ['x1'] + ['x2'] + ['x3']
+    Z = pd.DataFrame(Z, columns=columns)
     
     #-------- for Ba2motif dataset -------------------
-    Z = generate_data_ba(x, feature_values, original_columns, population_size=1000)
-    zy = blackbox.predict(Z)
+    #Z = generate_data_ba(x, feature_values, original_columns, population_size=1000)
+    # zy = blackbox.predict(Z)
     
     if len(np.unique(zy)) == 1:
         # print('qui')

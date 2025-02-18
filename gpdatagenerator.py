@@ -245,27 +245,16 @@ def generate_data_1(x, feature_values, population_size=1000, noise_ratio=0.1, pe
         for i in range(num_features):
             perturbation = np.random.uniform(-perturbation_ratio, perturbation_ratio)
             neighbor[i] += perturbation * (feature_values[i].max() - feature_values[i].min())
-            #print('neighbor[i]', neighbor[i])
-        print('neighbor', neighbor)
+            
         neighbors.append(neighbor)
 
     neighbors = np.array(neighbors)
 
     x1, x2, x3 = neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]
-
-
-    # Create a DataFrame for the generated data
     df = pd.DataFrame({'x1': x1, 'x2': x2, 'x3': x3})
     return df
 
 def generate_data_ba(x, feature_values, original_columns, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
-    """
-    Sinh các mẫu gần x bằng cách thêm nhiễu dựa trên khoảng biến thiên của từng đặc trưng.
-    - x: vector đặc trưng của mẫu cần giải thích (1D numpy array, kích thước d)
-    - feature_values: danh sách các mảng giá trị của từng đặc trưng (d phần tử, mỗi phần tử là mảng các giá trị)
-    - original_columns: danh sách tên các cột (d phần tử) dùng để tạo DataFrame kết quả
-    """
-    
     # loại bỏ cột y
     original_columns = original_columns[:-1]
     
@@ -274,11 +263,11 @@ def generate_data_ba(x, feature_values, original_columns, population_size=1000, 
     for _ in range(population_size):
         neighbor = x.copy()
         for i in range(num_features):
-            # Sinh nhiễu ngẫu nhiên theo tỉ lệ perturbation_ratio dựa trên khoảng biến thiên của đặc trưng i
             perturbation = np.random.uniform(-perturbation_ratio, perturbation_ratio)
             neighbor[i] += perturbation * (feature_values[i].max() - feature_values[i].min())
         neighbors.append(neighbor)
     neighbors = np.array(neighbors)
+    print('neighbors', neighbors)
     df_generated = pd.DataFrame(neighbors, columns=original_columns)
     return df_generated
 
@@ -310,6 +299,7 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
                 mu = np.mean(values)
                 sigma = np.std(values)
                 new_values = np.random.normal(mu, sigma, size)
+
             new_values = np.concatenate((values, new_values), axis=0)
         
         feature_values[i] = new_values

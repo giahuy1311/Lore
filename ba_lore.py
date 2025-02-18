@@ -13,68 +13,69 @@ from torch_geometric.datasets.graph_generator import BAGraph
 from torch_geometric.datasets.motif_generator import HouseMotif
 from torch_geometric.datasets.motif_generator import CycleMotif
 import random
+from torch_geometric.datasets import BA2MotifDataset
+from torch_geometric.nn import GINConv, GIN 
+import pickle
+from torch_geometric.loader import DataLoader
+from torch_geometric.nn import GIN
+import torch
+import torch.nn.functional as F
+from torch.nn import BatchNorm1d as BatchNorm
+from torch.nn import Linear, ReLU, Sequential
+from torch_geometric.nn import GINConv, global_add_pool
 
-def add_node_features(dataset):
-    new_data_list = []
-    for data in dataset:
-        data.x = torch.ones((data.num_nodes, 10))
-        new_data_list.append(data)
-    return new_data_list
+class GIN(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels, out_channels, num_layers):
+        super().__init__()
 
+        self.convs = torch.nn.ModuleList()
+        self.batch_norms = torch.nn.ModuleList()
+
+        for i in range(num_layers):
+            mlp = Sequential(
+                Linear(in_channels, 2 * hidden_channels),
+                BatchNorm(2 * hidden_channels),
+                ReLU(),
+                Linear(2 * hidden_channels, hidden_channels),
+            )
+            conv = GINConv(mlp, train_eps=True)
+
+            self.convs.append(conv)
+            self.batch_norms.append(BatchNorm(hidden_channels))
+
+            in_channels = hidden_channels
+
+        self.lin1 = Linear(hidden_channels, hidden_channels)
+        self.batch_norm1 = BatchNorm(hidden_channels)
+        self.lin2 = Linear(hidden_channels, out_channels)
+
+    def forward(self, x, edge_index, batch):
+        for conv, batch_norm in zip(self.convs, self.batch_norms):
+            x = F.relu(batch_norm(conv(x, edge_index)))
+        x = global_add_pool(x, batch)
+        x = F.relu(self.batch_norm1(self.lin1(x)))
+        x = F.dropout(x, p=0.5, training=self.training)
+        x = self.lin2(x)
+        return F.log_softmax(x, dim=-1)
+    
 def extract_graph_features(data):
     num_nodes = data.num_nodes
     num_edges = data.num_edges
     avg_degree = 2 * num_edges / num_nodes
-    
-    if data.x is not None:
-        node_feature_mean = data.x.mean(dim=0).numpy()
-    else:
-        node_feature_mean = np.zeros(10) 
-    return [num_nodes, num_edges, avg_degree] + node_feature_mean.tolist()
+ 
+    return [num_nodes, num_edges, avg_degree]
 
 def generate_dataset():
-    dataset1 = ExplainerDataset(
-        graph_generator=BAGraph(num_nodes=25, num_edges=1),
-        motif_generator=HouseMotif(),
-        num_motifs=1,
-        num_graphs=500,
-    )
-
-    dataset2 = ExplainerDataset(
-        graph_generator=BAGraph(num_nodes=25, num_edges=1),
-        motif_generator=CycleMotif(5),
-        num_motifs=1,
-        num_graphs=500,
-    )
-
-    new_dataset1 = []
-    for data in dataset1:
-        data = data.clone()  # Clone để có thể sửa đổi
-        data.graph_label = torch.tensor([0])
-        new_dataset1.append(data)
-
-    new_dataset2 = []
-    for data in dataset2:
-        data = data.clone()
-        data.graph_label = torch.tensor([1])
-        new_dataset2.append(data)
-
-    # Thêm node features (với clone bên trong hàm add_node_features nếu cần)
-    new_dataset1 = add_node_features(new_dataset1)
-    new_dataset2 = add_node_features(new_dataset2)
-
-    # Kết hợp dataset
-    dataset = new_dataset1 + new_dataset2
-    random.shuffle(dataset)
-    return dataset
+    dataset = BA2MotifDataset(root='data/BA2Motif')
+    return dataset.shuffle()
 
 def build_df(dataset):
     features = []
     labels = []
     for data in dataset:
         features.append(extract_graph_features(data))
-        labels.append(data.graph_label.item())
-    columns = ['num_nodes', 'num_edges', 'avg_degree'] + [f'feature_{i}' for i in range(10)]
+        labels.append(data.y.item())
+    columns = ['num_nodes', 'num_edges', 'avg_degree'] 
     df = pd.DataFrame(features, columns=columns)
     df['y'] = labels
     
@@ -125,6 +126,7 @@ def eval(x, y):
     return 1 if x == y else 0
 
 def main():
+    
     dataset = generate_dataset()
     df = build_df(dataset)
     dataset = prepare_dataset(df) # dùng lại từ lore
@@ -133,13 +135,16 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # blackbox
-    model = RandomForestClassifier(random_state=42)
+    model = RandomForestClassifier(random_state=42) # thay blackbox model
+    
     model.fit(X_train, y_train)
+    accuracy = model.score(X_test, y_test)
+    print('Accuracy: ', accuracy)
     
     path_data = 'datasets/'
-    idx_record2explain = 123
+    idx_record2explain = 111
     X2E = X_test
-    y2E = model.predict(X2E)
+    y2E = model(X2E)
     y2E = np.asarray([dataset['possible_outcomes'][i] for i in y2E])
 
     explanation, infos = lore.explain(idx_record2explain, X2E, dataset, model,
@@ -153,17 +158,17 @@ def main():
     dfx = dfX2E[idx_record2explain]
     # x = build_df2explain(blackbox, X2E[idx_record2explain].reshape(1, -1), dataset).to_dict('records')[0]
     covered = lore.get_covered(explanation[0][1], dfX2E, dataset)
-    for sample in covered:
-        print(dataset['df'].iloc[sample])
+    # for sample in covered:
+    #     print(dataset['df'].iloc[sample])
     print('x = %s' % dfx)
     
     print('r = %s --> %s' % (explanation[0][1], explanation[0][0]))
     for delta in explanation[1]:
         print('delta', delta)
         
-    # precision = [1-eval(v, explanation[0][0][dataset['class_name']]) for v in y2E[covered]]
-    # print(precision)
-    # print(np.mean(precision), np.std(precision))
+    precision = [1-eval(v, explanation[0][0][dataset['class_name']]) for v in y2E[covered]]
+    print(precision)
+    print(np.mean(precision), np.std(precision))
     
     
 if __name__ == "__main__":
