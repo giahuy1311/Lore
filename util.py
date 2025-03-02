@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 import _pickle as cPickle
+import torch
+import random
+from gin import predict_graph
 
 from sklearn.preprocessing import LabelEncoder
 
@@ -183,15 +186,23 @@ def generate_artificial_features(size, class_name, columns, features_type, discr
     return map(list, map(None, *artificial_data)), new_discrete, new_continuous
 
 
-def build_df2explain(bb, X, dataset):
+def build_df2explain(bb, X, dataset, graph_x = None, graphlist = None):
     
     columns = dataset['columns']
     features_type = dataset['features_type']
     discrete = dataset['discrete']
     label_encoder = dataset['label_encoder']
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    y = bb.predict(X)
+    #y = bb.predict(X)
     
+    if (graphlist is None) or (len(graphlist) == 0):
+        y = bb.predict(X)
+    elif graph_x is not None:
+        y = predict_graph(bb, device, graph_x)
+    else:
+        y = bb.predict(graphlist, device)
+    # print('y', y)
     yX = np.concatenate((X, y.reshape(-1, 1)), axis=1)
 
 
@@ -208,7 +219,7 @@ def build_df2explain(bb, X, dataset):
     return dfZ
 
 
-def dataframe2explain(X2E, dataset, idx_record2explain, blackbox):
+def dataframe2explain(X2E, dataset, idx_record2explain, blackbox, graphlist = None):
     # Dataset to explit to perform explanation (typically is the train or test set (real instances))
     Z = cPickle.loads(cPickle.dumps(X2E))
     # Select record to predict and explain
@@ -217,7 +228,7 @@ def dataframe2explain(X2E, dataset, idx_record2explain, blackbox):
 
     # Remove record to explain (optional) from dataset Z and convert into dataframe
     # Z = np.delete(Z, idx_record2explain, axis=0)
-    dfZ = build_df2explain(blackbox, Z, dataset)
+    dfZ = build_df2explain(blackbox, Z, dataset, graphlist = graphlist)
     
     return dfZ, x
 

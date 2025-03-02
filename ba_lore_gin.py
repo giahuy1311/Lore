@@ -24,94 +24,10 @@ from torch.nn import BatchNorm1d as BatchNorm
 from torch.nn import Linear, ReLU, Sequential
 from torch_geometric.nn import GINConv, global_add_pool
 from torch_geometric.nn.models import MLP
-
-class GIN(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels, num_layers):
-        super().__init__()
-
-        self.convs = torch.nn.ModuleList()
-        for _ in range(num_layers):
-            mlp = MLP([in_channels, hidden_channels, hidden_channels])
-            self.convs.append(GINConv(nn=mlp, train_eps=False))
-            in_channels = hidden_channels
-
-        self.mlp = MLP([hidden_channels, hidden_channels, out_channels],
-                       norm=None, dropout=0.5)
-
-    def forward(self, x, edge_index, batch, batch_size, return_embeddings=False):
-        for conv in self.convs:
-            x = conv(x, edge_index).relu()
-        
-        node_embeddings = x 
-        graph_embedding = global_add_pool(x, batch, size=batch_size)
-        output = self.mlp(graph_embedding)
-        
-        if return_embeddings:
-            return output, node_embeddings
-        return output
-    
-def train(model, train_loader, optimizer, device):
-    model.train()
-    total_loss = 0
-    for data in train_loader:
-        data = data.to(device)
-        optimizer.zero_grad()
-        out = model(data.x, data.edge_index, data.batch, data.batch_size)
-        loss = F.cross_entropy(out, data.y)
-        loss.backward()
-        optimizer.step()
-        total_loss += float(loss) * data.num_graphs
-    return total_loss / len(train_loader.dataset)
-
-@torch.no_grad()
-def test(model,loader, device):
-    model.eval()
-    total_correct = 0
-    for data in loader:
-        data = data.to(device)
-        out = model(data.x, data.edge_index, data.batch, data.batch_size)
-        pred = out.argmax(dim=-1)
-        total_correct += int((pred == data.y).sum())
-    return total_correct / len(loader.dataset)
-
-@torch.no_grad()
-def predict(model,graph, device):
-    model.eval()
-    graph = graph.to(device)
-
-    output, _ = model(graph.x, graph.edge_index)
-    pred = output.argmax(dim=-1).item()
-
-    return pred
+from gin import GIN
+from gin import *
 
 
-@torch.no_grad()
-def get_node_embeddings(model,loader, device):
-    model.eval()
-    all_embeddings = []
-    for data in loader:
-        data = data.to(device)
-        _, node_embeddings = model(data.x, data.edge_index, data.batch, data.batch_size, return_embeddings=True)
-        all_embeddings.append(node_embeddings.cpu())
-    return torch.cat(all_embeddings, dim=0)
-
-class GINBlackBox:
-    def __init__(self, model_path, dataset):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = GIN(in_channels=10, hidden_channels=64, out_channels=2, num_layers=3).to(self.device)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-        self.model.eval()
-        
-    def predict(self, X):
-        self.model.eval()
-        predictions = []
-        with torch.no_grad():
-            for data in X:  
-                data = data.to(self.device)
-                out = self.model(data.x, data.edge_index, data.batch)
-                pred = out.argmax(dim=1).cpu().numpy()
-                predictions.extend(pred)
-        return np.array(predictions)
     
 def extract_graph_features(data):
     num_nodes = data.num_nodes
@@ -124,19 +40,6 @@ def generate_dataset():
     dataset = BA2MotifDataset(root='data/BA2Motif')
     return dataset.shuffle()
 
-def build_df(dataset):
-    features = []
-    labels = []
-    for data in dataset:
-        features.append(extract_graph_features(data))
-        labels.append(data.y.item())
-    columns = ['num_nodes', 'num_edges', 'avg_degree'] 
-    df = pd.DataFrame(features, columns=columns)
-    df['y'] = labels
-    
-    return df
-    
-
 def prepare_dataset(df):
     columns = df.columns.tolist()
     class_name = 'y'
@@ -144,11 +47,9 @@ def prepare_dataset(df):
     possible_outcomes = list(df[class_name].unique())
 
     type_features, features_type = recognize_features_type(df, class_name)
-    print(type_features)
     discrete = ['y']
     discrete, continuous = set_discrete_continuous(columns, type_features, class_name, discrete=discrete,
                                                    continuous=None)
-    print(discrete, continuous)
 
     columns_tmp = list(columns)
     columns_tmp.remove(class_name)
@@ -188,51 +89,58 @@ def extract_features(dataset):
     return np.array(X) 
 
 def main():
-    model_path = 'model/gin_model.pt'
-    
-    
     dataset = generate_dataset()
     train_dataset, test_dataset, val_dataset = dataset[:800], dataset[800:900], dataset[900:]
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
-
-    model = torch.load(model_path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    model = GIN(
+        in_channels=dataset.num_features,
+        hidden_channels=32,
+        out_channels=dataset.num_classes,
+        num_layers=5,
+    ).to(device)
+    model.load_state_dict(torch.load('model.pth'))
+    model.eval()
 
     # blackbox
-    df = build_df(dataset)
+    df = get_mean_node_embeddings_df(model,  device, test_loader)
+    print('df: ', df)
     dataset = prepare_dataset(df)
     
     
     path_data = 'datasets/'
-    idx_record2explain = 111
-    X2E = get_node_embeddings(model, test_loader, device)
-    print('X2E', X2E)
-
+    idx_record2explain = 13
+    X2E = df.drop(columns=['y']).values
+    # print('X2E', X2E)
+    # print('dataset', dataset)
+    dataset_info = extract_graph_info(test_loader)
     #y2E = np.asarray([dataset['possible_outcomes'][i] for i in y2E])
 
-    explanation, infos = lore.explain(idx_record2explain, X2E, dataset, model,
-                                        ng_function=genetic_neighborhood,
+    explanation, infos = lore.explain_graph(idx_record2explain, X2E, dataset, model,
                                         discrete_use_probabilities=True,
                                         continuous_function_estimation=False,
                                         returns_infos=True,
-                                        path=path_data, sep=';', log=False)
+                                        path=path_data, sep=';', log=False, testloader = test_loader, dataset_info = dataset_info)
     
-    dfX2E = build_df2explain(model, X2E, dataset).to_dict('records')
+    dfX2E = build_df2explain(model, X2E, dataset, graphlist=test_loader).to_dict('records')
     dfx = dfX2E[idx_record2explain]
     # x = build_df2explain(blackbox, X2E[idx_record2explain].reshape(1, -1), dataset).to_dict('records')[0]
-    covered = lore.get_covered(explanation[0][1], dfX2E, dataset)
+    #covered = lore.get_covered(explanation[0][1], dfX2E, dataset)
     # for sample in covered:
     #     print(dataset['df'].iloc[sample])
+    print("explaination: ", explanation)
     print('x = %s' % dfx)
     
     print('r = %s --> %s' % (explanation[0][1], explanation[0][0]))
     for delta in explanation[1]:
         print('delta', delta)
         
-    precision = [1-eval(v, explanation[0][0][dataset['class_name']]) for v in y2E[covered]]
-    print(precision)
-    print(np.mean(precision), np.std(precision))
+    # precision = [1-eval(v, explanation[0][0][dataset['class_name']]) for v in y2E[covered]]
+    # print(precision)
+    # print(np.mean(precision), np.std(precision))
     
     
 if __name__ == "__main__":

@@ -236,7 +236,7 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
 
     return Xgp
 
-def generate_data_1(x, feature_values, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
+def generate_data_1(x, feature_values, population_size=2000, noise_ratio=0.1, perturbation_ratio=0.1):
     num_features = len(x)
     neighbors = []
 
@@ -250,8 +250,8 @@ def generate_data_1(x, feature_values, population_size=1000, noise_ratio=0.1, pe
 
     neighbors = np.array(neighbors)
 
-    x1, x2, x3 = neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]
-    df = pd.DataFrame({'x1': x1, 'x2': x2, 'x3': x3})
+    x1, x2 = neighbors[:, 0], neighbors[:, 1]
+    df = pd.DataFrame({'x1': x1, 'x2': x2})
     return df
 
 def generate_data_ba(x, feature_values, original_columns, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
@@ -280,6 +280,9 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
     columns1 = list(columns)
     columns1.remove(class_name)
     feature_values = dict()
+    # print('columns1', columns1)
+    # print('discrete', discrete)
+    # print('continuous', continuous)
     
     for i, col in enumerate(columns1):
         values = X[:, i]
@@ -305,6 +308,47 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
         feature_values[i] = new_values
     
     return feature_values
+
+def calculate_graph_feature_values(dataset, columns, class_name, discrete, continuous, size=1000,
+                                   discrete_use_probabilities=False,
+                                   continuous_function_estimation=False):
+    feature_values = {}
+    print('discrete', discrete)
+    print('continuous', continuous)
+
+    for idx, data in enumerate(dataset):  # Duyệt qua từng đồ thị trong dataset
+        X = data.x.numpy()  # Lấy feature matrix của node (giả sử x là tensor)
+        print('COLUMNS', columns)
+        feature_values[idx] = {}  # Lưu feature values cho đồ thị hiện tại
+        
+        for i in columns:
+            if i == class_name:  # Bỏ qua cột class nếu có
+                continue
+            values = X[:, i]
+            
+            if i in discrete:
+                if discrete_use_probabilities:
+                    diff_values, counts = np.unique(values, return_counts=True)
+                    prob = counts / np.sum(counts)
+                    new_values = np.random.choice(diff_values, size=size, p=prob)
+                    new_values = np.concatenate((values, new_values), axis=0)
+                else:
+                    new_values = np.unique(values)
+                    
+            elif i in continuous:
+                if continuous_function_estimation:
+                    new_values = get_distr_values(values, size)  # Hàm nội suy hoặc KDE
+                else:
+                    mu = np.mean(values)
+                    sigma = np.std(values)
+                    new_values = np.random.normal(mu, sigma, size)
+                
+                new_values = np.concatenate((values, new_values), axis=0)
+            
+            feature_values[idx][i] = new_values  # Lưu giá trị mở rộng cho feature i
+    print('feature_values', feature_values)
+    return feature_values
+
 
 
 def get_distr_values(x, size=1000):

@@ -51,13 +51,12 @@ def prepare_dataset(df):
     return dataset
 
 def main():
-    x1 = np.random.uniform(0, 100, 5000)
-    x2 = np.random.uniform(0, 100, 5000)
-    x3 = np.random.uniform(0, 100, 5000)
+    x1 = np.random.uniform(0, 10, 5000)
+    x2 = np.random.uniform(0, 10, 5000)
     
-    y = np.where((x1 + 2*x2 - 0.5*x3 > 120) & (x1 * x2 < 1000), 1, 0)
+    y = np.where(((x1-5)**2 - x2 <= -2) & (x2 <= 10 - x1), 1, 0)
     
-    df = pd.DataFrame({'x1': x1, 'x2':x2, 'x3':x3,'y': y}) 
+    df = pd.DataFrame({'x1': x1, 'x2':x2, 'y': y}) 
     
     dataset = prepare_dataset(df) # dùng lại từ lore
     
@@ -67,9 +66,10 @@ def main():
     # blackbox
     model = RandomForestClassifier(random_state=42)
     model.fit(X_train, y_train)
-    
+    accuracy = model.score(X_test, y_test)
+    print('accuracy', accuracy)
     path_data = 'datasets/'
-    idx_record2explain = 2
+    idx_record2explain = 12
     X2E = X_test
     print('X2E', X2E)
     # tạo neighbors = cách thêm nhiễu nhỏ random
@@ -83,7 +83,7 @@ def main():
     dfX2E = build_df2explain(model, X2E, dataset).to_dict('records')
     dfx = dfX2E[idx_record2explain]
     # x = build_df2explain(blackbox, X2E[idx_record2explain].reshape(1, -1), dataset).to_dict('records')[0]
-
+    print("explaination: ", explanation)
     print('x = %s' % dfx)
     
     print('r = %s --> %s' % (explanation[0][1], explanation[0][0]))

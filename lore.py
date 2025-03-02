@@ -4,6 +4,9 @@ import random
 from neighbor_generator import *
 from gpdatagenerator import calculate_feature_values
 
+from gin import *
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
 
 def explain(idx_record2explain, X2E, dataset, blackbox,
             ng_function=genetic_neighborhood, #generate_random_data, #genetic_neighborhood, random_neighborhood
@@ -19,13 +22,14 @@ def explain(idx_record2explain, X2E, dataset, blackbox,
     features_type = dataset['features_type']
     label_encoder = dataset['label_encoder']
     possible_outcomes = dataset['possible_outcomes']
-
+    
     # Dataset Preprocessing
     dataset['feature_values'] = calculate_feature_values(X2E, columns, class_name, discrete, continuous, 1000,
                                                          discrete_use_probabilities, continuous_function_estimation)
-
+    
     dfZ, x = dataframe2explain(X2E, dataset, idx_record2explain, blackbox)
     print('dfZ',dfZ)
+    
     # Generate Neighborhood
     dfZ, Z = ng_function(dfZ, x, blackbox, dataset)
 
@@ -35,11 +39,12 @@ def explain(idx_record2explain, X2E, dataset, blackbox,
     # Apply Black Box and Decision Tree on instance to explain
     bb_outcome = blackbox.predict(x.reshape(1, -1))[0]
 
-    dfx = build_df2explain(blackbox, x.reshape(1, -1), dataset).to_dict('records')[0]
+    # predict the outcome of the instance to explain
+    dfx = build_df2explain(blackbox, x.reshape(1, -1), dataset).to_dict('records')[0] 
     cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
 
     # Apply Black Box and Decision Tree on neighborhood
-    y_pred_bb = blackbox.predict(Z) # nhãn dự đoán của blackbox cho các điểm lân cận
+    #y_pred_bb = blackbox.predict(Z) # nhãn dự đoán của blackbox cho các điểm lân cận
     
     # y_pred_cc: nhãn dự đoán của decision tree cho các điểm lân cận
     y_pred_cc, leaf_nodes = pyyadt.predict(dt, dfZ.to_dict('records'), class_name, features_type,
@@ -59,21 +64,21 @@ def explain(idx_record2explain, X2E, dataset, blackbox,
     # Extract Coutnerfactuals
     diff_outcome = get_diff_outcome(bb_outcome, possible_outcomes)
     counterfactuals = pyyadt.get_counterfactuals(dt, tree_path, rule, diff_outcome,
-                                                 class_name, continuous, features_type)
-
-    explanation = (rule, counterfactuals)
+                                                class_name, continuous, features_type)
+    
+    explanation = rule
 
     infos = {
-        'bb_outcome': bb_outcome,
+        #'bb_outcome': bb_outcome,
         'cc_outcome': cc_outcome,
-        'y_pred_bb': y_pred_bb,
+        #'y_pred_bb': y_pred_bb,
         'y_pred_cc': y_pred_cc,
         'dfZ': dfZ,
         'Z': Z,
         'dt': dt,
         'tree_path': tree_path,
         'leaf_nodes': leaf_nodes,
-        'diff_outcome': diff_outcome,
+        #'diff_outcome': diff_outcome,
         'predict': predict,
     }
 
@@ -113,6 +118,87 @@ def is_satisfied(x, rule, discrete, features_type):
                     return False
     return True
 
+
+def explain_graph(idx_record2explain, X2E, dataset, blackbox, #generate_random_data, #genetic_neighborhood, random_neighborhood
+            discrete_use_probabilities=False,
+            continuous_function_estimation=False,
+            returns_infos=False, path='./', sep=';', log=False, testloader = None, dataset_info = None):
+
+    random.seed(0)
+    class_name = dataset['class_name']
+    columns = dataset['columns']
+    discrete = dataset['discrete']
+    continuous = dataset['continuous']
+    features_type = dataset['features_type']
+    label_encoder = dataset['label_encoder']
+    possible_outcomes = dataset['possible_outcomes']
+    
+    # Get the graph to explain
+    graph2X = dataset_info[idx_record2explain]
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    dfZ, x = dataframe2explain(X2E, dataset, idx_record2explain, blackbox, graphlist=testloader)
+    print('dfZ',dfZ)
+    
+    # Generate Neighborhood
+    dfZ, Z = generate_samples(graph2X, blackbox, device, 100)
+    print('dfZ of modified: ', dfZ)
+    print('Z of modified: ', Z)
+
+    # Build Decision Tree
+    dt, dt_dot = pyyadt.fit(dfZ, class_name, columns, features_type, discrete, continuous, path=path, sep=sep, log=log)
+
+    # Apply Black Box and Decision Tree on instance to explain
+    bb_outcome = predict_graph(blackbox, device, graph2X)
+    print('bb_outcome: ', bb_outcome)
+
+    # predict the outcome of the instance to explain
+    dfx = build_df2explain(blackbox, x.reshape(1, -1), dataset, graph_x=graph2X, graphlist=testloader).to_dict('records')[0]
+    cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
+
+    # Apply Black Box and Decision Tree on neighborhood
+    #y_pred_bb = blackbox.predict(Z) # nhãn dự đoán của blackbox cho các điểm lân cận
+    
+    # y_pred_cc: nhãn dự đoán của decision tree cho các điểm lân cận
+    y_pred_cc, leaf_nodes = pyyadt.predict(dt, dfZ.to_dict('records'), class_name, features_type,
+                                           discrete, continuous)
+
+    def predict(X):
+        y, ln, = pyyadt.predict(dt, X, class_name, features_type, discrete, continuous)
+        return y, ln
+
+    # Update labels if necessary
+    if class_name in label_encoder:
+        cc_outcome = label_encoder[class_name].transform(np.array([cc_outcome]))[0]
+
+    if class_name in label_encoder:
+        y_pred_cc = label_encoder[class_name].transform(y_pred_cc)
+
+    # Extract Coutnerfactuals
+    diff_outcome = get_diff_outcome(bb_outcome, possible_outcomes)
+    counterfactuals = pyyadt.get_counterfactuals(dt, tree_path, rule, diff_outcome,
+                                                class_name, continuous, features_type)
+    
+    explanation = (rule, counterfactuals)
+
+    infos = {
+        #'bb_outcome': bb_outcome,
+        'cc_outcome': cc_outcome,
+        #'y_pred_bb': y_pred_bb,
+        'y_pred_cc': y_pred_cc,
+        'dfZ': dfZ,
+        'Z': Z,
+        'dt': dt,
+        'tree_path': tree_path,
+        'leaf_nodes': leaf_nodes,
+        #'diff_outcome': diff_outcome,
+        'predict': predict,
+    }
+
+    if returns_infos:
+        return explanation, infos
+
+    return explanation
 
 def get_covered(rule, X, dataset):
     covered_indexes = list()
