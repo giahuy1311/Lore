@@ -37,16 +37,16 @@ def fitness_sso(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     # similar_same_outcome
     x0d = {idx_features[i]: val for i, val in enumerate(x0)}
     x1d = {idx_features[i]: val for i, val in enumerate(x1)}
-    
     # zero if is too similar
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio >= eta else sim_ratio
     
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1).reshape(1, -1))
     target_similarity = 1.0 if y0 == y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
+    print('record_similarity: ', record_similarity, '-- evaluation: ', target_similarity)
     return evaluation,
 
 
@@ -59,11 +59,12 @@ def fitness_sdo(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio >= eta else sim_ratio
 
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1).reshape(1, -1))
     target_similarity = 1.0 if y0 != y1 else 0.0
 
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
+    print('record_similarity: ', record_similarity, '-- evaluation: ', target_similarity)
     return evaluation,
 
 
@@ -76,8 +77,8 @@ def fitness_dso(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio <= eta else 1.0 - sim_ratio
     
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0[:25]).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1[:25]).reshape(1, -1))
     target_similarity = 1.0 if y0 == y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
@@ -93,8 +94,8 @@ def fitness_ddo(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio <= eta else 1.0 - sim_ratio
     
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0[:25]).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1[:25]).reshape(1, -1))
     target_similarity = 1.0 if y0 != y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
@@ -227,8 +228,7 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
         Xddo = get_oversample(population, halloffame)
         if len(Xddo) > 0:
             Xgp.append(Xddo)
-    print('Xgp', Xgp)
-
+            
     Xgp = np.concatenate((Xgp), axis=0)
 
     if return_logbook:
@@ -236,7 +236,7 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
 
     return Xgp
 
-def generate_data_1(x, feature_values, population_size=2000, noise_ratio=0.1, perturbation_ratio=0.1):
+def generate_data_1(x, feature_values, population_size=2000, noise_ratio=0.2, perturbation_ratio=0.2):
     num_features = len(x)
     neighbors = []
 
@@ -286,6 +286,7 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
     
     for i, col in enumerate(columns1):
         values = X[:, i]
+        
         if col in discrete:
             if discrete_use_probabilities:
                 diff_values, counts = np.unique(values, return_counts=True)

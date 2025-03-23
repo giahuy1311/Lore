@@ -4,7 +4,7 @@ import random
 from neighbor_generator import *
 from gpdatagenerator import calculate_feature_values
 
-from gin import *
+from model.gin import *
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
@@ -66,7 +66,7 @@ def explain(idx_record2explain, X2E, dataset, blackbox,
     counterfactuals = pyyadt.get_counterfactuals(dt, tree_path, rule, diff_outcome,
                                                 class_name, continuous, features_type)
     
-    explanation = rule
+    explanation = (rule, counterfactuals)
 
     infos = {
         #'bb_outcome': bb_outcome,
@@ -119,10 +119,12 @@ def is_satisfied(x, rule, discrete, features_type):
     return True
 
 
-def explain_graph(idx_record2explain, X2E, dataset, blackbox, #generate_random_data, #genetic_neighborhood, random_neighborhood
+def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox, 
+            ng_function=genetic_neighborhood,
+            #generate_random_data, #genetic_neighborhood, random_neighborhood
             discrete_use_probabilities=False,
             continuous_function_estimation=False,
-            returns_infos=False, path='./', sep=';', log=False, testloader = None, dataset_info = None):
+            returns_infos=False, path='./', sep=';', log=False):
 
     random.seed(0)
     class_name = dataset['class_name']
@@ -133,27 +135,20 @@ def explain_graph(idx_record2explain, X2E, dataset, blackbox, #generate_random_d
     label_encoder = dataset['label_encoder']
     possible_outcomes = dataset['possible_outcomes']
     
-    # Get the graph to explain
-    graph2X = dataset_info[idx_record2explain]
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
-    dfZ, x = dataframe2explain(X2E, dataset, idx_record2explain, blackbox, graphlist=testloader)
-    print('dfZ',dfZ)
-    
-    # Generate Neighborhood
-    dfZ, Z = generate_samples(graph2X, blackbox, device, 100)
+
     print('dfZ of modified: ', dfZ)
-    print('Z of modified: ', Z)
 
     # Build Decision Tree
     dt, dt_dot = pyyadt.fit(dfZ, class_name, columns, features_type, discrete, continuous, path=path, sep=sep, log=log)
 
     # Apply Black Box and Decision Tree on instance to explain
-    bb_outcome = predict_graph(blackbox, device, graph2X)
-    print('bb_outcome: ', bb_outcome)
+    bb_outcome = blackbox.predict(graphX.x, graphX.edge_index, None, 1).item()
 
     # predict the outcome of the instance to explain
-    dfx = build_df2explain(blackbox, x.reshape(1, -1), dataset, graph_x=graph2X, graphlist=testloader).to_dict('records')[0]
+    #dfx = build_df2explain(blackbox, x, dataset).to_dict('records')[0]
+    dfx = prepare_dataframe([graphX], blackbox, device)
+    print('dfx: ', dfx)
     cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
 
     # Apply Black Box and Decision Tree on neighborhood
@@ -174,7 +169,7 @@ def explain_graph(idx_record2explain, X2E, dataset, blackbox, #generate_random_d
     if class_name in label_encoder:
         y_pred_cc = label_encoder[class_name].transform(y_pred_cc)
 
-    # Extract Coutnerfactuals
+    # # Extract Coutnerfactuals
     diff_outcome = get_diff_outcome(bb_outcome, possible_outcomes)
     counterfactuals = pyyadt.get_counterfactuals(dt, tree_path, rule, diff_outcome,
                                                 class_name, continuous, features_type)
@@ -187,7 +182,7 @@ def explain_graph(idx_record2explain, X2E, dataset, blackbox, #generate_random_d
         #'y_pred_bb': y_pred_bb,
         'y_pred_cc': y_pred_cc,
         'dfZ': dfZ,
-        'Z': Z,
+        # 'Z': Z,
         'dt': dt,
         'tree_path': tree_path,
         'leaf_nodes': leaf_nodes,

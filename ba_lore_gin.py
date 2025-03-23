@@ -8,10 +8,6 @@ import lore
 from prepare_dataset import *
 from neighbor_generator import *
 import torch
-from torch_geometric.datasets import ExplainerDataset
-from torch_geometric.datasets.graph_generator import BAGraph
-from torch_geometric.datasets.motif_generator import HouseMotif
-from torch_geometric.datasets.motif_generator import CycleMotif
 import random
 from torch_geometric.datasets import BA2MotifDataset
 from torch_geometric.nn import GINConv, GIN 
@@ -24,20 +20,38 @@ from torch.nn import BatchNorm1d as BatchNorm
 from torch.nn import Linear, ReLU, Sequential
 from torch_geometric.nn import GINConv, global_add_pool
 from torch_geometric.nn.models import MLP
-from gin import GIN
-from gin import *
+from model.gin import GIN
+from model.gin import *
+from torch_geometric.datasets import TUDataset
+from sklearn.model_selection import train_test_split
+from GA_utils import *
 
 
     
-def extract_graph_features(data):
-    num_nodes = data.num_nodes
-    num_edges = data.num_edges
-    avg_degree = 2 * num_edges / num_nodes
- 
-    return [num_nodes, num_edges, avg_degree]
+def split_loader(dataset):
+    indices = torch.randperm(len(dataset)).tolist()
+    train_size = int(0.8 * len(dataset))
+    val_size = int(0.1 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
 
-def generate_dataset():
-    dataset = BA2MotifDataset(root='data/BA2Motif')
+    train_idx, temp_idx = train_test_split(indices, train_size=train_size, random_state=42)
+    val_idx, test_idx = train_test_split(temp_idx, test_size=test_size, random_state=42)
+
+    train_dataset = dataset[train_idx]
+    val_dataset = dataset[val_idx]
+    test_dataset = dataset[test_idx]
+
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    
+    return train_loader, val_loader, test_loader
+
+def generate_dataset(dataset_name):
+    if dataset_name == 'BA2Motif':
+        dataset = BA2MotifDataset(root='data/BA2Motif')
+    elif dataset_name == 'MUTAG':
+        dataset = TUDataset(root="data/TUDataset", name="MUTAG")
     return dataset.shuffle()
 
 def prepare_dataset(df):
@@ -89,11 +103,11 @@ def extract_features(dataset):
     return np.array(X) 
 
 def main():
-    dataset = generate_dataset()
-    train_dataset, test_dataset, val_dataset = dataset[:800], dataset[800:900], dataset[900:]
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
+    ba_name = 'BA2Motif'
+    mutag_name = 'MUTAG'
+    dataset = generate_dataset(ba_name)
+    test_dataset = dataset[:200]
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     model = GIN(
@@ -102,36 +116,45 @@ def main():
         out_channels=dataset.num_classes,
         num_layers=5,
     ).to(device)
-    model.load_state_dict(torch.load('model.pth'))
+    model.load_state_dict(torch.load('model/model.pth'))
     model.eval()
 
     # blackbox
-    df = get_mean_node_embeddings_df(model,  device, test_loader)
+    df = prepare_dataframe(test_dataset, model, device)
     print('df: ', df)
     dataset = prepare_dataset(df)
     
     
     path_data = 'datasets/'
-    idx_record2explain = 13
-    X2E = df.drop(columns=['y']).values
-    # print('X2E', X2E)
-    # print('dataset', dataset)
-    dataset_info = extract_graph_info(test_loader)
+    idx_record2explain = 3
+    
+    #generate sample
+    graphX = test_dataset[idx_record2explain]
+    final_population = genetic_algorithm(graphX = graphX, populationSize=400, generations=10, blackbox=model, 
+                                     distance_function=compute_fgw_distance, 
+                                     alpha1=0.5, alpha2=0.5)
+    dfZ = prepare_dataframe(final_population, model, device)
+    
+    # graphX = df[idx_record2explain]
+
+    with open("graph2X.pkl", "wb") as f:
+        pickle.dump(graphX, f)
     #y2E = np.asarray([dataset['possible_outcomes'][i] for i in y2E])
 
-    explanation, infos = lore.explain_graph(idx_record2explain, X2E, dataset, model,
+    explanation, infos = lore.explain_graph(idx_record2explain, dfZ, graphX, dataset, model,
                                         discrete_use_probabilities=True,
                                         continuous_function_estimation=False,
                                         returns_infos=True,
-                                        path=path_data, sep=';', log=False, testloader = test_loader, dataset_info = dataset_info)
-    
-    dfX2E = build_df2explain(model, X2E, dataset, graphlist=test_loader).to_dict('records')
+                                        path=path_data, sep=';', log=False)
+    print("explaination: ", explanation)
+    # dfX2E = build_df2explain(model, test_dataset, dataset).to_dict('records')
+    dfX2E = df.to_dict('records')
     dfx = dfX2E[idx_record2explain]
     # x = build_df2explain(blackbox, X2E[idx_record2explain].reshape(1, -1), dataset).to_dict('records')[0]
     #covered = lore.get_covered(explanation[0][1], dfX2E, dataset)
     # for sample in covered:
     #     print(dataset['df'].iloc[sample])
-    print("explaination: ", explanation)
+    
     print('x = %s' % dfx)
     
     print('r = %s --> %s' % (explanation[0][1], explanation[0][0]))

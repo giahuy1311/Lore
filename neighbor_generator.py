@@ -34,8 +34,6 @@ def genetic_neighborhood(dfZ, x, blackbox, dataset):
     idx_features = dataset['idx_features']
     feature_values = dataset['feature_values']
     
-    original_columns = dataset['columns']
-    
     discrete_no_class = list(discrete)
     discrete_no_class.remove(class_name)
 
@@ -44,27 +42,28 @@ def genetic_neighborhood(dfZ, x, blackbox, dataset):
                               ddist=simple_match_distance,
                               cdist=normalized_euclidean_distance)
 
-    # Z = generate_data(x, feature_values, blackbox, discrete_no_class, continuous, class_name, idx_features,
-    #                   distance_function, neigtype={'ss': 0.5, 'sd': 0.5}, population_size=1000, halloffame_ratio=0.1,
-    #                   alpha1=0.5, alpha2=0.5, eta1=1.0, eta2=0.0,  tournsize=3, cxpb=0.5, mutpb=0.2, ngen=10)
+    Z = generate_data(x, feature_values, blackbox, discrete_no_class, continuous, class_name, idx_features,
+                      distance_function, neigtype={'ss': 0.5, 'sd': 0.5}, population_size=1000, halloffame_ratio=0.1,
+                      alpha1=0.5, alpha2=0.5, eta1=1.0, eta2=0.0,  tournsize=3, cxpb=0.5, mutpb=0.2, ngen=10)
     
     #-------- for simple problem x1, x2, x3 -------------------
-    Z = generate_data_1(x, feature_values)
-    zy = blackbox.predict(Z)
-    columns = ['x1'] + ['x2']
-    Z = pd.DataFrame(Z, columns=columns)
+    # Z = generate_data_1(x, feature_values)
+    # zy = blackbox.predict(Z)
+    # columns = ['x1'] + ['x2']
+    # Z = pd.DataFrame(Z, columns=columns)
     
+    # zy = blackbox.predict(Z)
     
-    if len(np.unique(zy)) == 1:
-        # print('qui')
-        label_encoder = dataset['label_encoder']
-        dfx = build_df2explain(blackbox, x.reshape(1, -1), dataset).to_dict('records')[0]
-        neig_indexes = get_closest_diffoutcome(dfZ, dfx, discrete, continuous, class_name,
-                                               blackbox, label_encoder, distance_function, k=100)
-        Zn, _ = label_encode(dfZ, discrete, label_encoder)
-        Zn = Zn.iloc[neig_indexes, Zn.columns != class_name].values
+    # if len(np.unique(zy)) == 1:
+    #     # print('qui')
+    #     label_encoder = dataset['label_encoder']
+    #     dfx = build_df2explain(blackbox, x.reshape(1, -1), dataset).to_dict('records')[0]
+    #     neig_indexes = get_closest_diffoutcome(dfZ, dfx, discrete, continuous, class_name,
+    #                                            blackbox, label_encoder, distance_function, k=100)
+    #     Zn, _ = label_encode(dfZ, discrete, label_encoder)
+    #     Zn = Zn.iloc[neig_indexes, Zn.columns != class_name].values
         
-        Z = np.concatenate((Z, Zn), axis=0)
+    #     Z = np.concatenate((Z, Zn), axis=0)
 
     dfZ = build_df2explain(blackbox, Z, dataset)
     return dfZ, Z
