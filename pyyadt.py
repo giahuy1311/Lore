@@ -272,7 +272,6 @@ def get_counterfactuals(dt, tree_path, rule, diff_outcome, class_name, continuou
         # delta = set(crule[1].items()) - set(rule[1].items())
         ccond = expand_rule(crule, continuous)
         delta, qlen = get_falsifeid_conditions(cond, ccond, continuous)
-        print(f"rule: {crule}")
         print(f"delta: {delta}")
         print(f"diff: {qlen}")
         if qlen < clen:

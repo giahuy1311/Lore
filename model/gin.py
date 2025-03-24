@@ -36,6 +36,11 @@ class GIN(torch.nn.Module):
         return output
     
     def predict(self, x, edge_index, batch, batch_size):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        x = x.to(device)
+        edge_index = edge_index.to(device)
+        if batch is not None:
+          batch = batch.to(device)
         out = self.forward(x, edge_index, batch, batch_size)
         return out.argmax(dim=-1)
     
@@ -97,20 +102,14 @@ def get_graph_features_df(device, loader):
         num_graphs = data.batch_size
         for i in range(num_graphs):
             mask = (data.batch == i)  
-
-            # Lấy node labels thay vì data.x
             node_labels = [atom_types.index(atom_types[x.argmax().item()]) + 1 for x in data.x[mask]]
 
             all_graphs.append(node_labels)
             labels.append(data.y[i].item())
 
-    # Xác định số node tối đa trong batch (để padding)
     max_nodes = max(len(graph) for graph in all_graphs)
 
-    # Padding cho các đồ thị có ít node hơn max_nodes
     padded_graphs = [graph + [0] * (max_nodes - len(graph)) for graph in all_graphs]
-
-    # Tạo tên cột dựa trên số lượng node
     columns = [f'node_{i}' for i in range(max_nodes)]
 
     # Tạo DataFrame
@@ -173,72 +172,6 @@ def predict_single_graph(model, graph, device):
     
     return predicted_label
 
-def generate_modified_graphs(graph, model, device, num_graphs=50):
-    modified_graphs = []
-    num_nodes = graph.x.size(0)
-
-    for _ in range(num_graphs):
-        edge_index = graph.edge_index.clone()
-        edges = edge_index.t().tolist()
-
-        mode = "add" if torch.rand(1).item() > 0.5 else "remove"
-
-        if mode == "remove" and len(edges) > 0:
-            remove_idx = torch.randint(0, len(edges), (1,)).item()
-            edges.pop(remove_idx)
-
-        elif mode == "add":
-            while True:
-                u, v = torch.randint(0, num_nodes, (2,)).tolist()
-                if u != v and [u, v] not in edges and [v, u] not in edges:
-                    edges.append([u, v])
-                    break
-
-        new_edge_index = torch.tensor(edges, dtype=torch.long).t()
-
-        new_graph = Data(x=graph.x, edge_index=new_edge_index)
-        new_graph.y = torch.tensor([predict_single_graph(model, new_graph, device)], dtype=torch.long)
-
-        modified_graphs.append(new_graph)
-
-    return modified_graphs
-
-# @torch.no_grad()
-# def get_mean_node_embeddings_df(model,device,loader):
-#     model.eval()
-#     all_graphs = []  
-#     labels = []
-#     for data in loader:
-#         data = data.to(device)
-#         _, node_embeddings = model(data.x, data.edge_index, data.batch, data.batch_size, return_embeddings=True)
-
-#         num_graphs = data.batch_size
-#         for i in range(num_graphs):
-#             mask = (data.batch == i)  
-#             mean_node_embedding = node_embeddings[mask].mean(dim=1).cpu().numpy() 
-#             labels.append(data.y[i].item())
-#             all_graphs.append(mean_node_embedding.flatten().tolist())
-
-#     max_nodes = max(len(graph) for graph in all_graphs)
-#     padded_graphs = [list(graph) + [0] * (max_nodes - len(graph)) for graph in all_graphs]
-#     columns = [f'n_{i}' for i in range(max_nodes)]
-
-#     df = pd.DataFrame(padded_graphs, columns=columns)
-#     df['y'] = labels
-#     return df
-
-
-# @torch.no_grad()
-# def create_adjacency_matrix(edge_index, num_nodes):
-#     adj_matrix = np.zeros((num_nodes, num_nodes), dtype=int) 
-#     edges = edge_index.cpu().numpy().T 
-    
-#     for src, dst in edges:
-#         adj_matrix[src, dst] = 1  
-#         adj_matrix[dst, src] = 1  
-    
-#     return adj_matrix
-
 def create_adjacency_matrix(edge_index, num_nodes):
     """Create an adjacency matrix from edge indices."""
     adj_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.int)
@@ -268,117 +201,50 @@ def ensure_undirected(edge_index):
     
     return torch.tensor(bidirectional_edges, dtype=torch.long).T
 
-def prepare_dataframe(list_graph, model, device, predict = False):
+def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge = False):
     all_embeddings = []
     edge_dicts = []
     labels = []
     
-    model.eval()  # Set model to evaluation mode
+    model.eval() 
     
     with torch.no_grad():
         for graph in list_graph:
             x = graph.x.to(device)
             edge_index = ensure_undirected(graph.edge_index).to(device)
 
-            _, node_embeddings = model(x, edge_index, None, 1, return_embeddings=True)
-
-            mean_node_embedding = node_embeddings.mean(dim=1).cpu().numpy()
-            all_embeddings.append(mean_node_embedding.tolist())
+            if only_edge is False:
+            # tinh node embeddings va lay mean
+                _, node_embeddings = model(x, edge_index, None, 1, return_embeddings=True)
+                mean_node_embedding = node_embeddings.mean(dim=1).cpu().numpy()
+                all_embeddings.append(mean_node_embedding.tolist())
             
+            # tao ma tran ke va chuyen thanh dict
             num_nodes = graph.num_nodes
             adj_matrix = create_adjacency_matrix(graph.edge_index.cpu(), num_nodes)
-            
-            # Convert adjacency matrix to dictionary
             edge_dict = {f'n{r}_n{c}': adj_matrix[r, c].item() 
                          for r in range(num_nodes) for c in range(r, num_nodes)}
             edge_dicts.append(edge_dict)
             
-            if predict:
+            if ground_truth:
                 labels.append(graph.y.item())
             else :
                 prediction = model.predict(x, edge_index, None, 1)
                 labels.append(prediction.item())
                 
+
+    max_embed_dim = max(len(embed) for embed in all_embeddings) if all_embeddings else 0
+    embed_columns = [f'nE_{i}' for i in range(max_embed_dim)]
     
-    # Create DataFrame
-    max_embed_dim = max(len(embed) for embed in all_embeddings)
-    embed_columns = [f'nE_{i+1}' for i in range(max_embed_dim)]
-    df_embeddings = pd.DataFrame(all_embeddings, columns=embed_columns)
-    
-    # Create DataFrame for edge information
-    df_edges = pd.DataFrame(edge_dicts).fillna(0).astype(int)
-    
-    # Combine DataFrames
-    result_df = pd.concat([df_embeddings, df_edges], axis=1)
+    if only_edge:
+        result_df = pd.DataFrame(edge_dicts).fillna(0).astype(int)
+    else:
+        df_embeddings = pd.DataFrame(all_embeddings, columns=embed_columns)
+        df_edges = pd.DataFrame(edge_dicts).fillna(0).astype(int)
+        result_df = pd.concat([df_embeddings, df_edges], axis=1)
     result_df['y'] = labels
     
     return result_df
 
-# @torch.no_grad()
-# def get_mean_node_embeddings_df(model, device, loader):
-#     model.eval()
-#     all_graphs = []  
-#     labels = []
-#     edge_dicts = []
 
-#     for data in loader:
-#         data = data.to(device)
-#         _, node_embeddings = model(data.x, data.edge_index, data.batch, data.batch_size, return_embeddings=True)
-
-#         num_graphs = data.batch_size
-#         for i in range(num_graphs):
-#             mask = (data.batch == i)  
-#             node_indices = torch.where(mask)[0].cpu().numpy()
-#             mean_node_embedding = node_embeddings[mask].mean(dim=1).cpu().numpy()
-
-#             labels.append(data.y[i].item())
-#             all_graphs.append(mean_node_embedding.flatten().tolist())
-
-#             node_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(node_indices)}
-#             edges = data.edge_index[:, mask[data.edge_index[0]]].cpu().numpy().T
-#             edges_mapped = [(node_mapping[src], node_mapping[dst]) for src, dst in edges]
-
-#             # ma trận kề
-#             num_nodes = len(node_indices)
-#             adj_matrix = create_adjacency_matrix(torch.tensor(edges_mapped).T, num_nodes)
-
-#             # convert ma trận kề thành dict để concat vào DataFrame
-#             edge_dict = {f'n{r}_n{c}': adj_matrix[r, c] for r in range(num_nodes) for c in range(r, num_nodes)}
-#             edge_dicts.append(edge_dict)
-
-#     max_nodes = max(len(graph) for graph in all_graphs)
-#     embed_columns = [f'nE_{i+1}' for i in range(max_nodes)]
-#     df = pd.DataFrame(all_graphs, columns=embed_columns)
-
-#     df_edges = pd.DataFrame(edge_dicts).fillna(0).astype(int)  
-
-#     df = pd.concat([df, df_edges], axis=1)
-#     df['y'] = labels  
-
-#     return df
-
-
-def convert_dict_to_graph(graph_info):
-    x = torch.tensor(graph_info["x"], dtype=torch.float)
-    edge_index = torch.tensor(graph_info["edge_index"], dtype=torch.long)
-    y = torch.tensor([graph_info["y"]], dtype=torch.long)
-    
-    return Data(x=x, edge_index=edge_index, y=y)
-def save_graphs_to_pickle(graphs, filename="graphs.pkl"):
-    with open(filename, "wb") as f:
-        pickle.dump(graphs, f)
-
-
-
-def generate_samples(graph2X, blackbox, device, num_samples=100):
-    graph_x_info = convert_dict_to_graph(graph2X)
-    print("Graph info: ",graph_x_info)
-    # Lưu graph đã convert
-    save_graphs_to_pickle(graph_x_info, "graph2X.pkl")
-    samples = generate_modified_graphs(graph_x_info,blackbox, device, num_samples)
-    data_loader = DataLoader(samples, batch_size=32, shuffle=False)
-    dfZ = get_mean_node_embeddings_df(blackbox, device, data_loader)
-    Z = dfZ.drop(columns=['y']).values
-    
-    return dfZ, Z
 

@@ -138,16 +138,16 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     print('dfZ of modified: ', dfZ)
+    # Apply Black Box and Decision Tree on instance to explain
+    bb_outcome = blackbox.predict(graphX.x, graphX.edge_index, None, 1).item()
+    print('bb_outcome: ', bb_outcome)
 
     # Build Decision Tree
     dt, dt_dot = pyyadt.fit(dfZ, class_name, columns, features_type, discrete, continuous, path=path, sep=sep, log=log)
 
-    # Apply Black Box and Decision Tree on instance to explain
-    bb_outcome = blackbox.predict(graphX.x, graphX.edge_index, None, 1).item()
-
     # predict the outcome of the instance to explain
     #dfx = build_df2explain(blackbox, x, dataset).to_dict('records')[0]
-    dfx = prepare_dataframe([graphX], blackbox, device)
+    dfx = prepare_dataframe([graphX], blackbox, device, ground_truth=False, only_edge=True)
     print('dfx: ', dfx)
     cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
 

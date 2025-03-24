@@ -6,7 +6,6 @@ import random
 from model.gin import predict_graph
 
 from sklearn.preprocessing import LabelEncoder
-from model.decoder import MLPDecoder
 
 
 
@@ -193,8 +192,8 @@ def build_df2explain(bb, X, dataset):
     discrete = dataset['discrete']
     label_encoder = dataset['label_encoder']
     
-    # y = bb.predict(X)
-    y = bb.predict(X.x, X.edge_index, None, 1)
+    y = bb.predict(X)
+    # y = bb.predict(X.x, X.edge_index, None, 1)
     
     # y = []
     # if (graphlist is None) or (len(graphlist) == 0):
@@ -205,10 +204,10 @@ def build_df2explain(bb, X, dataset):
     #     y = predict_graph(bb, device, graph_x)
     # else:
     #     y = bb.predict(graphlist, device)
-    print('y ', y)
-    print('y.shape ', y.shape)
-    print('X ', X)
-    print('X.shape ', X.shape)
+    # print('y ', y)
+    # print('y.shape ', y.shape)
+    # print('X ', X)
+    # print('X.shape ', X.shape)
     
     
     yX = np.concatenate((y.reshape(-1, 1), X), axis=1)

@@ -1,7 +1,7 @@
 import random
 import torch
 from torch_geometric.data import Data
-from GA_utils import *
+from genetic import *
 from torch_geometric.datasets import BA2MotifDataset
 from model.gin import *
 
