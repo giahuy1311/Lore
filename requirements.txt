@@ -17,3 +17,4 @@ tzdata
 pydot
 torch
 torch_geometric
+pot

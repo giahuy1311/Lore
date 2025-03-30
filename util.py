@@ -1,8 +1,12 @@
 import numpy as np
 import pandas as pd
 import _pickle as cPickle
+import torch
+import random
+from model.gin import predict_graph
 
 from sklearn.preprocessing import LabelEncoder
+
 
 
 def recognize_features_type(df, class_name):    
@@ -54,10 +58,8 @@ def label_encode(df, columns, label_encoder=None):
             df_le[col] = le.fit_transform(df_le[col])
             label_encoder[col] = le
         else:
-            print(f"Đang mã hóa cột: {col}")
             le = label_encoder[col]
             df_le[col] = le.transform(df_le[col])
-            print(f"Giá trị sau khi mã hóa: {df[col].unique()}")
     return df_le, label_encoder
 
 
@@ -191,8 +193,24 @@ def build_df2explain(bb, X, dataset):
     label_encoder = dataset['label_encoder']
     
     y = bb.predict(X)
+    # y = bb.predict(X.x, X.edge_index, None, 1)
     
-    yX = np.concatenate((X, y.reshape(-1, 1)), axis=1)
+    # y = []
+    # if (graphlist is None) or (len(graphlist) == 0):
+    #     for i in range(X.shape[0]):
+    #         pred = bb.predict(X[i, :25].reshape(1, -1), decoder, None, None)
+    #         y.append(pred)
+    # elif graph_x is not None:
+    #     y = predict_graph(bb, device, graph_x)
+    # else:
+    #     y = bb.predict(graphlist, device)
+    # print('y ', y)
+    # print('y.shape ', y.shape)
+    # print('X ', X)
+    # print('X.shape ', X.shape)
+    
+    
+    yX = np.concatenate((y.reshape(-1, 1), X), axis=1)
 
 
     data = list()
@@ -208,7 +226,8 @@ def build_df2explain(bb, X, dataset):
     return dfZ
 
 
-def dataframe2explain(X2E, dataset, idx_record2explain, blackbox):
+
+def dataframe2explain(X2E, dataset, idx_record2explain, blackbox, graphlist = None):
     # Dataset to explit to perform explanation (typically is the train or test set (real instances))
     Z = cPickle.loads(cPickle.dumps(X2E))
     # Select record to predict and explain
@@ -217,7 +236,7 @@ def dataframe2explain(X2E, dataset, idx_record2explain, blackbox):
 
     # Remove record to explain (optional) from dataset Z and convert into dataframe
     # Z = np.delete(Z, idx_record2explain, axis=0)
-    dfZ = build_df2explain(blackbox, Z, dataset)
+    dfZ = build_df2explain(blackbox, Z, dataset, graphlist = graphlist)
     
     return dfZ, x
 

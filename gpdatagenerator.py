@@ -37,16 +37,16 @@ def fitness_sso(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     # similar_same_outcome
     x0d = {idx_features[i]: val for i, val in enumerate(x0)}
     x1d = {idx_features[i]: val for i, val in enumerate(x1)}
-    
     # zero if is too similar
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio >= eta else sim_ratio
     
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1).reshape(1, -1))
     target_similarity = 1.0 if y0 == y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
+    print('record_similarity: ', record_similarity, '-- evaluation: ', target_similarity)
     return evaluation,
 
 
@@ -59,11 +59,12 @@ def fitness_sdo(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio >= eta else sim_ratio
 
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1).reshape(1, -1))
     target_similarity = 1.0 if y0 != y1 else 0.0
 
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
+    print('record_similarity: ', record_similarity, '-- evaluation: ', target_similarity)
     return evaluation,
 
 
@@ -76,8 +77,8 @@ def fitness_dso(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio <= eta else 1.0 - sim_ratio
     
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0[:25]).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1[:25]).reshape(1, -1))
     target_similarity = 1.0 if y0 == y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
@@ -93,8 +94,8 @@ def fitness_ddo(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio <= eta else 1.0 - sim_ratio
     
-    y0 = bb.predict(np.asarray(x0).reshape(1, -1))[0]
-    y1 = bb.predict(np.asarray(x1).reshape(1, -1))[0]
+    y0 = bb.predict(np.asarray(x0[:25]).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1[:25]).reshape(1, -1))
     target_similarity = 1.0 if y0 != y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
@@ -227,8 +228,7 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
         Xddo = get_oversample(population, halloffame)
         if len(Xddo) > 0:
             Xgp.append(Xddo)
-    print('Xgp', Xgp)
-
+            
     Xgp = np.concatenate((Xgp), axis=0)
 
     if return_logbook:
@@ -236,7 +236,7 @@ def generate_data(x, feature_values, bb, discrete, continuous, class_name, idx_f
 
     return Xgp
 
-def generate_data_1(x, feature_values, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
+def generate_data_1(x, feature_values, population_size=2000, noise_ratio=0.2, perturbation_ratio=0.2):
     num_features = len(x)
     neighbors = []
 
@@ -245,27 +245,16 @@ def generate_data_1(x, feature_values, population_size=1000, noise_ratio=0.1, pe
         for i in range(num_features):
             perturbation = np.random.uniform(-perturbation_ratio, perturbation_ratio)
             neighbor[i] += perturbation * (feature_values[i].max() - feature_values[i].min())
-            #print('neighbor[i]', neighbor[i])
-        print('neighbor', neighbor)
+            
         neighbors.append(neighbor)
 
     neighbors = np.array(neighbors)
 
-    x1, x2, x3 = neighbors[:, 0], neighbors[:, 1], neighbors[:, 2]
-
-
-    # Create a DataFrame for the generated data
-    df = pd.DataFrame({'x1': x1, 'x2': x2, 'x3': x3})
+    x1, x2 = neighbors[:, 0], neighbors[:, 1]
+    df = pd.DataFrame({'x1': x1, 'x2': x2})
     return df
 
 def generate_data_ba(x, feature_values, original_columns, population_size=1000, noise_ratio=0.1, perturbation_ratio=0.1):
-    """
-    Sinh các mẫu gần x bằng cách thêm nhiễu dựa trên khoảng biến thiên của từng đặc trưng.
-    - x: vector đặc trưng của mẫu cần giải thích (1D numpy array, kích thước d)
-    - feature_values: danh sách các mảng giá trị của từng đặc trưng (d phần tử, mỗi phần tử là mảng các giá trị)
-    - original_columns: danh sách tên các cột (d phần tử) dùng để tạo DataFrame kết quả
-    """
-    
     # loại bỏ cột y
     original_columns = original_columns[:-1]
     
@@ -274,11 +263,11 @@ def generate_data_ba(x, feature_values, original_columns, population_size=1000, 
     for _ in range(population_size):
         neighbor = x.copy()
         for i in range(num_features):
-            # Sinh nhiễu ngẫu nhiên theo tỉ lệ perturbation_ratio dựa trên khoảng biến thiên của đặc trưng i
             perturbation = np.random.uniform(-perturbation_ratio, perturbation_ratio)
             neighbor[i] += perturbation * (feature_values[i].max() - feature_values[i].min())
         neighbors.append(neighbor)
     neighbors = np.array(neighbors)
+    print('neighbors', neighbors)
     df_generated = pd.DataFrame(neighbors, columns=original_columns)
     return df_generated
 
@@ -291,9 +280,13 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
     columns1 = list(columns)
     columns1.remove(class_name)
     feature_values = dict()
+    # print('columns1', columns1)
+    # print('discrete', discrete)
+    # print('continuous', continuous)
     
     for i, col in enumerate(columns1):
         values = X[:, i]
+        
         if col in discrete:
             if discrete_use_probabilities:
                 diff_values, counts = np.unique(values, return_counts=True)
@@ -310,11 +303,53 @@ def calculate_feature_values(X, columns, class_name, discrete, continuous, size=
                 mu = np.mean(values)
                 sigma = np.std(values)
                 new_values = np.random.normal(mu, sigma, size)
+
             new_values = np.concatenate((values, new_values), axis=0)
         
         feature_values[i] = new_values
     
     return feature_values
+
+def calculate_graph_feature_values(dataset, columns, class_name, discrete, continuous, size=1000,
+                                   discrete_use_probabilities=False,
+                                   continuous_function_estimation=False):
+    feature_values = {}
+    print('discrete', discrete)
+    print('continuous', continuous)
+
+    for idx, data in enumerate(dataset):  # Duyệt qua từng đồ thị trong dataset
+        X = data.x.numpy()  # Lấy feature matrix của node (giả sử x là tensor)
+        print('COLUMNS', columns)
+        feature_values[idx] = {}  # Lưu feature values cho đồ thị hiện tại
+        
+        for i in columns:
+            if i == class_name:  # Bỏ qua cột class nếu có
+                continue
+            values = X[:, i]
+            
+            if i in discrete:
+                if discrete_use_probabilities:
+                    diff_values, counts = np.unique(values, return_counts=True)
+                    prob = counts / np.sum(counts)
+                    new_values = np.random.choice(diff_values, size=size, p=prob)
+                    new_values = np.concatenate((values, new_values), axis=0)
+                else:
+                    new_values = np.unique(values)
+                    
+            elif i in continuous:
+                if continuous_function_estimation:
+                    new_values = get_distr_values(values, size)  # Hàm nội suy hoặc KDE
+                else:
+                    mu = np.mean(values)
+                    sigma = np.std(values)
+                    new_values = np.random.normal(mu, sigma, size)
+                
+                new_values = np.concatenate((values, new_values), axis=0)
+            
+            feature_values[idx][i] = new_values  # Lưu giá trị mở rộng cho feature i
+    print('feature_values', feature_values)
+    return feature_values
+
 
 
 def get_distr_values(x, size=1000):

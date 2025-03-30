@@ -32,11 +32,10 @@ def mixed_distance(x, y, discrete, continuous, class_name, ddist, cdist):
     xc = np.array([x[att] for att in continuous])
     wc = 0.0
     cd = 0.0
-    if len(xd) > 0:
+    if len(xc) > 0:
         yc = np.array([y[att] for att in continuous])
         wc = 1.0 * len(continuous) / (len(discrete) + len(continuous))
         cd = cdist(xc, yc)
-
     return wd * dd + wc * cd
 
 
