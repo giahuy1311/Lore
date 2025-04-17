@@ -139,7 +139,7 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
 
     print('dfZ of modified: ', dfZ)
     # Apply Black Box and Decision Tree on instance to explain
-    bb_outcome = blackbox.predict(graphX.x, graphX.edge_index, None, 1).item()
+    bb_outcome = blackbox.predict(graphX.x, graphX.edge_index, None, 1).argmax(dim =-1).item()
     print('bb_outcome: ', bb_outcome)
 
     # Build Decision Tree

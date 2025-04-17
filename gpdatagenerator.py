@@ -77,8 +77,8 @@ def fitness_dso(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio <= eta else 1.0 - sim_ratio
     
-    y0 = bb.predict(np.asarray(x0[:25]).reshape(1, -1))
-    y1 = bb.predict(np.asarray(x1[:25]).reshape(1, -1))
+    y0 = bb.predict(np.asarray(x0).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1).reshape(1, -1))
     target_similarity = 1.0 if y0 == y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
@@ -94,8 +94,8 @@ def fitness_ddo(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     sim_ratio = 1.0 - distance_function(x0d, x1d, discrete, continuous, class_name)
     record_similarity = 0.0 if sim_ratio <= eta else 1.0 - sim_ratio
     
-    y0 = bb.predict(np.asarray(x0[:25]).reshape(1, -1))
-    y1 = bb.predict(np.asarray(x1[:25]).reshape(1, -1))
+    y0 = bb.predict(np.asarray(x0).reshape(1, -1))
+    y1 = bb.predict(np.asarray(x1).reshape(1, -1))
     target_similarity = 1.0 if y0 != y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity

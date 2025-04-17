@@ -26,7 +26,24 @@ from torch_geometric.datasets import TUDataset
 from sklearn.model_selection import train_test_split
 from genetic import *
 
+def permute_graph(data):
+    num_nodes = data.num_nodes
+    nodes = list(range(num_nodes))
+    random.shuffle(nodes)
+    mapping = {node: i for i, node in enumerate(nodes)}
+    print(mapping)
+    
+    edge_index = data.edge_index.clone()
+    edge_index[0] = torch.tensor([mapping[node] for node in edge_index[0].tolist()])
+    edge_index[1] = torch.tensor([mapping[node] for node in edge_index[1].tolist()])
+    
+    x = data.x.clone()
+    x = x[nodes]
 
+    permuted_data = data.clone()
+    permuted_data.edge_index = edge_index
+    permuted_data.x = x
+    return permuted_data
     
 def split_loader(dataset):
     indices = torch.randperm(len(dataset)).tolist()
@@ -52,7 +69,7 @@ def generate_dataset(dataset_name):
         dataset = BA2MotifDataset(root='data/BA2Motif')
     elif dataset_name == 'MUTAG':
         dataset = TUDataset(root="data/TUDataset", name="MUTAG")
-    return dataset.shuffle()
+    return dataset
 
 def prepare_dataset(df):
     columns = df.columns.tolist()
@@ -64,7 +81,8 @@ def prepare_dataset(df):
     discrete = ['y']
     discrete, continuous = set_discrete_continuous(columns, type_features, class_name, discrete=discrete,
                                                    continuous=None)
-
+    print('discrete: ', discrete)
+    print('continuous: ', continuous)
     columns_tmp = list(columns)
     columns_tmp.remove(class_name)
     idx_features = {i: col for i, col in enumerate(columns_tmp)}
@@ -98,11 +116,11 @@ def eval(x, y):
 def main():
     ba_name = 'BA2Motif'
     mutag_name = 'MUTAG'
+    
     dataset = generate_dataset(ba_name)
     test_dataset = dataset
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = GIN(
         in_channels=dataset.num_features,
         hidden_channels=32,
@@ -118,20 +136,20 @@ def main():
     print('df: ', df)
     dataset = prepare_dataset(df)
     path_data = 'datasets/'
-    idx_record2explain = 12
+    idx_record2explain = 724 #(72 & 724)
     
     #generate sample
     graphX = test_dataset[idx_record2explain]
-    graphX = graphX.to(device) 
-    graphX = Data(x=graphX.x, edge_index=filter_undirected_edges(graphX.edge_index))
-    final_population = genetic_algorithm(graphX = graphX, populationSize=400, generations=10, blackbox=model, 
-                                     distance_function=fgw_distance, 
-                                     alpha1=0.5, alpha2=0.5, dataset=test_dataset)
-    dfZ = prepare_dataframe(final_population, model, device, ground_truth=False, only_edge=True)
     
-    graphX = test_dataset[idx_record2explain]
-    with open("graph2X.pkl", "wb") as f:
-        pickle.dump(graphX, f)
+    graphX = Data(x=graphX.x, edge_index=filter_undirected_edges(graphX.edge_index))
+    final_population = genetic_algorithm(graphX = graphX, populationSize=400, generations=20, blackbox=model, 
+                                     distance_function=my_distance2, 
+                                     alpha1=0.5, alpha2=0.5)
+    
+    dfZ = prepare_dataframe(final_population, model, device, ground_truth=False, only_edge=True)
+    print('df_0: ', dfZ[dfZ['y'] == 0].shape[0])
+    print('df_1: ', dfZ[dfZ['y'] == 1].shape[0])
+    graphX.edge_index = ensure_undirected(graphX.edge_index)
 
     y_pred_list = df['y'].tolist()
     y2E = np.asarray([dataset['possible_outcomes'][i] for i in y_pred_list])
@@ -142,13 +160,12 @@ def main():
                                         returns_infos=True,
                                         path=path_data, sep=';', log=False)
     dfX2E = df.to_dict('records')
-    dfx = dfX2E[idx_record2explain]
+    # dfx = dfX2E[idx_record2explain]
+    dfx = prepare_dataframe([graphX], model, device, ground_truth=False, only_edge=True)
     # x = build_df2explain(blackbox, X2E[idx_record2explain].reshape(1, -1), dataset).to_dict('records')[0]
     covered = lore.get_covered(explanation[0][1], dfX2E, dataset)
     # for sample in covered:
     #     print(dataset['df'].iloc[sample])
-    for i in range(5):
-        print('covered %d: %s' % (i, dataset['df'].iloc[covered[i]]))
         
     print("covered len:", len(covered))
     print('x = %s' % dfx)
