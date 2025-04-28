@@ -89,7 +89,8 @@ def pad_features(features, target_size):
     return features
 
 def my_distance(data1, data2, adj_weight=0.5, feature_weight=0.5, normalize=True):
-    max_nodes = max(data1.num_nodes, data2.num_nodes)
+
+    max_nodes = max(data1.x.shape[0], data2.x.shape[0])
 
     data1.edge_index = ensure_undirected(data1.edge_index)
     data2.edge_index = ensure_undirected(data2.edge_index)
@@ -121,4 +122,29 @@ def my_distance(data1, data2, adj_weight=0.5, feature_weight=0.5, normalize=True
     total_distance = adj_weight * adj_distance + feature_weight * feature_distance
     #print("distance: ", adj_distance.item())
     return total_distance.item()
+
+def my_distance2(data1, data2, adj_weight=0.5, feature_weight=0.5):
+    
+    edges_1 = set(tuple(edge.tolist()) for edge in data1.edge_index.T)
+    edges_2 = set(tuple(edge.tolist()) for edge in data2.edge_index.T)
+    
+    num_common_edges = len(edges_1.intersection(edges_2))
+    num_total_edges = len(edges_1.union(edges_2))
+    adj_distance = 1.0 - num_common_edges / num_total_edges
+    
+    max_nodes = max(data1.x.shape[0], data2.x.shape[0])
+    feature_distance = torch.tensor(0.0)
+    if data1.x is not None and data2.x is not None:
+        feature1 = pad_features(data1.x, max_nodes)
+        feature2 = pad_features(data2.x, max_nodes)
+        feature_distance = torch.norm(feature1 - feature2, p='fro')
+    else:
+        feature_distance = torch.tensor(0.0)
+    
+    feature_distance = feature_distance / torch.norm(torch.ones_like(feature1), p='fro')
+    
+    total_distance = adj_weight * adj_distance + feature_weight * feature_distance
+    return total_distance.item()
+    
+        
     

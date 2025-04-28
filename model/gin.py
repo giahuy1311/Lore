@@ -10,39 +10,70 @@ import pickle
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.nn import GINConv, global_add_pool
+from torch_geometric.utils import to_undirected
+
 class GIN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers):
         super().__init__()
 
         self.convs = torch.nn.ModuleList()
-        for _ in range(num_layers):
-            mlp = MLP([in_channels, hidden_channels, hidden_channels])
-            self.convs.append(GINConv(nn=mlp, train_eps=False))
-            in_channels = hidden_channels
+        self.batch_norms = torch.nn.ModuleList()
 
-        self.mlp = MLP([hidden_channels, hidden_channels, out_channels],
-                       norm=None, dropout=0.5)
+        for _ in range(num_layers):
+            mlp = nn.Sequential(
+                nn.Linear(in_channels, 2 * hidden_channels),
+                nn.BatchNorm1d(2 * hidden_channels), 
+                nn.ReLU(),
+                nn.Linear(2 * hidden_channels, hidden_channels),
+            )
+            conv = GINConv(mlp, train_eps=True)  
+            self.convs.append(conv)
+            self.batch_norms.append(nn.BatchNorm1d(hidden_channels))  
+
+            in_channels = hidden_channels  
+
+        
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_channels, hidden_channels),
+            nn.BatchNorm1d(hidden_channels), 
+            nn.ReLU(),
+            nn.Dropout(0.5),  
+            nn.Linear(hidden_channels, out_channels),
+        )
 
     def forward(self, x, edge_index, batch, batch_size, return_embeddings=False):
-        for conv in self.convs:
-            x = conv(x, edge_index).relu()
-        
+        for conv, batch_norm in zip(self.convs, self.batch_norms):
+            x = conv(x, edge_index)
+            x = batch_norm(x).relu()  
+
         node_embeddings = x 
         graph_embedding = global_add_pool(x, batch, size=batch_size)
-        output = self.mlp(graph_embedding)
         
-        if return_embeddings:
-            return output, node_embeddings
-        return output
+        output = self.mlp(graph_embedding)
     
-    def predict(self, x, edge_index, batch, batch_size):
+        if return_embeddings:
+            return output, node_embeddings, graph_embedding
+        
+        return output
+
+    
+    def predict(self, x, edge_index, batch, batch_size, get_embeddings=False):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         x = x.to(device)
         edge_index = edge_index.to(device)
         if batch is not None:
           batch = batch.to(device)
-        out = self.forward(x, edge_index, batch, batch_size)
-        return out.argmax(dim=-1)
+        out = self.forward(x, edge_index, batch, batch_size, return_embeddings=get_embeddings)
+        probs = F.softmax(out, dim=-1)
+        if get_embeddings:
+            return probs, out[1]
+        else:
+            return probs
+        # return out.argmax(dim=-1)
     
     # def predict(self, mean_embedding, decoder, batch, batch_size):
     #     mean_embedding = torch.tensor(mean_embedding, dtype=torch.float32)
@@ -112,7 +143,7 @@ def get_graph_features_df(device, loader):
     padded_graphs = [graph + [0] * (max_nodes - len(graph)) for graph in all_graphs]
     columns = [f'node_{i}' for i in range(max_nodes)]
 
-    # Tạo DataFrame
+    
     df = pd.DataFrame(padded_graphs, columns=columns)
     df['y'] = labels
 
@@ -173,13 +204,12 @@ def predict_single_graph(model, graph, device):
     return predicted_label
 
 def create_adjacency_matrix(edge_index, num_nodes):
-    """Create an adjacency matrix from edge indices."""
     adj_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.int)
-    if edge_index.numel() > 0:  # Check if there are any edges
+    if edge_index.numel() > 0:  
         for i in range(edge_index.size(1)):
             src, dst = edge_index[0, i].item(), edge_index[1, i].item()
             adj_matrix[src, dst] = 1
-            adj_matrix[dst, src] = 1  # Ensure undirected graph
+            adj_matrix[dst, src] = 1  
     return adj_matrix
 
 def ensure_undirected(edge_index):
@@ -201,11 +231,11 @@ def ensure_undirected(edge_index):
     
     return torch.tensor(bidirectional_edges, dtype=torch.long).T
 
-def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge = False):
+def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge = False, node_label = False):
     all_embeddings = []
     edge_dicts = []
     labels = []
-    
+    node_labels = []
     model.eval() 
     
     with torch.no_grad():
@@ -226,25 +256,35 @@ def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge
                          for r in range(num_nodes) for c in range(r, num_nodes)}
             edge_dicts.append(edge_dict)
             
+            # y tu data hoac model
             if ground_truth:
                 labels.append(graph.y.item())
             else :
-                prediction = model.predict(x, edge_index, None, 1)
+                prediction = model.predict(x, edge_index, None, 1).argmax(dim=-1)
                 labels.append(prediction.item())
+            
+            # node labels
+            atom_types = ["C", "N", "O", "F", "I", "Cl", "Br"]
+            # node_labels = {i: atom_types[x.argmax().item()] for i, x in enumerate(data.x)}  
+            if node_label:
+                node_label_list = [atom_types[x.argmax().item()] for x in x]
+                node_labels.append(node_label_list)
                 
 
     max_embed_dim = max(len(embed) for embed in all_embeddings) if all_embeddings else 0
     embed_columns = [f'nE_{i}' for i in range(max_embed_dim)]
     
-    if only_edge:
-        result_df = pd.DataFrame(edge_dicts).fillna(0).astype(int)
-    else:
+    result_df = pd.DataFrame()
+    if node_labels:
+        df_node_labels = pd.DataFrame(node_labels)
+        result_df = pd.concat([result_df, df_node_labels], axis=1)
+    if all_embeddings:
         df_embeddings = pd.DataFrame(all_embeddings, columns=embed_columns)
+        result_df = pd.concat([result_df, df_embeddings], axis=1)
+    if only_edge:
         df_edges = pd.DataFrame(edge_dicts).fillna(0).astype(int)
-        result_df = pd.concat([df_embeddings, df_edges], axis=1)
+        result_df = pd.concat([result_df, df_edges], axis=1)
+         
     result_df['y'] = labels
     
     return result_df
-
-
-

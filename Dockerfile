@@ -16,4 +16,4 @@ RUN chmod +x yadt/dTcmd
 #RUN ./yadt/dTcmd -fd ./datasets/compas-scores-two-years.data -fm ./datasets/compas-scores-two-years.names -sep ';' -d ./datasets/compas-scores-two-years.dot
 
 # Your command here
-CMD ["python", "ba_lore_gin.py"]
+CMD ["python", "lore_graph.py"]
