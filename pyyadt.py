@@ -32,6 +32,15 @@ def fit(df, class_name, columns, features_type, discrete, continuous,
     cmd = 'yadt/dTcmd -fd %s -fm %s -sep %s -d %s' % (
         data_filename, names_filename, sep, tree_filename)
     output = subprocess.check_output(cmd.split(), stderr=subprocess.STDOUT)
+    
+    # try:
+    #     result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+    #     print("Command succeeded.")
+    #     print("Output:\n", result.stdout)
+    # except subprocess.CalledProcessError as e:
+    #     print("❌ Command failed with code:", e.returncode)
+    #     print("stderr:\n", e.stderr)
+    #     print("stdout:\n", e.stdout)
     # cmd = r"dTcmd -fd %s -fm %s -sep '%s' -d %s" % (
     #     data_filename, names_filename, sep, tree_filename)
     # cmd = r'noah "%s"' % cmd
@@ -98,8 +107,14 @@ def predict_single_record(dt, x, class_name, edge_labels, node_labels, node_isle
             count += 1
             edge_val = edge_labels[(node, child)]
             if att in discrete:
-                val = val.strip() if isinstance(val, str) else val     
-                if yadt_value2type(edge_val, att, features_type) == val:
+                val = val.strip() if isinstance(val, str) else val
+                edge_val_converted = yadt_value2type(edge_val, att, features_type)
+                if isinstance(val, pd.Series):
+                    if (edge_val_converted == val).any():  
+                        tree_path.append(node)
+                        node = child
+                        break
+                elif edge_val_converted == val:  
                     tree_path.append(node)
                     node = child
                     break

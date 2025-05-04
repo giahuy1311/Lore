@@ -9,6 +9,7 @@ import random
 import torch
 from torch_geometric.data import Data
 from sklearn.preprocessing import normalize
+import torch.nn.functional as F
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -76,171 +77,291 @@ class GraphGenome:
         return GraphGenome(Data(x=self.x.clone().to(device), edge_index=self.edge_index.clone().to(device)))
     
     def eval_fitness_sso(self, graphX, blackbox, distance_function, alpha1, alpha2):
-        similarity = 1.0 - distance_function(graphX, self)
-        similarity = 0.0 if similarity >= 1 else similarity
+        '''
+        u = softmax(graph_embedding)
+        '''
+        prob_X, embedding_X = blackbox.predict(graphX.x, ensure_undirected(graphX.edge_index), None)
+        prob_G, embedding_G = blackbox.predict(self.x, ensure_undirected(self.edge_index), None)
         
-        y_X = blackbox.predict(graphX.x, ensure_undirected(graphX.edge_index), None, 1).argmax(dim=-1).item()
-        y_G = blackbox.predict(self.x, ensure_undirected(self.edge_index), None, 1).argmax(dim=-1).item()
-        target_similarity = 1.0 if y_X == y_G else 0.0
+        uX = F.normalize(embedding_X, p=2, dim=1)
+        uG = F.normalize(embedding_G, p=2, dim=1)
+        #uX = F.softmax(embedding_X, dim=1)
+        #uG = F.softmax(embedding_G, dim=1)
         
-        #print('record_similarity: ', similarity, '-- evaluation: ', target_similarity)
-        return alpha1 * similarity + alpha2 * target_similarity
+        distance = torch.norm(uX - uG, p=2).item()
+        #distance = 0 if prob_X.argmax().item() == prob_G.argmax().item() else 1
+        if distance <= 1e-8:
+            distance = 1
+        #print('distance sdo: ', distance, ' ---- label: ', prob_G.argmax().item(), ' ---- prob: ', prob_G)
+        return distance
     
-    def eval_fitness_sdo(self, graphX, blackbox, distance_function, alpha1, alpha2):
-        similarity = 1.0 - distance_function(graphX, self)
-        similarity = 0.0 if similarity >= 1 else similarity
+    def eval_fitness_sdo(self, graphX, blackbox, distance_function, alpha1, alpha2, DO_graphs_embedding):
+        '''
+        DO_graphs_embedding: list of embedding of graphs that has other label to graphX
+        '''
+        prob_G, embedding_G = blackbox.predict(self.x, ensure_undirected(self.edge_index), None)
+        uG = F.normalize(embedding_G, p=2, dim=1)
+        #uG = F.softmax(embedding_G, dim=1)
+        distances = []
+        for embedding in DO_graphs_embedding:
+            uX = embedding
+            
+            distance = torch.norm(uX - uG, p=2).item()
+            #distance = 0 if uX.argmax().item() == prob_G.argmax().item() else 1
+            distances.append(distance)
         
-        y_X = blackbox.predict(graphX.x, ensure_undirected(graphX.edge_index), None, 1).argmax(dim=-1).item()
-        y_G = blackbox.predict(self.x, ensure_undirected(self.edge_index), None, 1).argmax(dim=-1).item()
-        target_similarity = 1.0 if y_X != y_G else 0.0
-        
-        #print('record_similarity: ', similarity, '-- evaluation: ', target_similarity)
-        return alpha1 * similarity + alpha2 * target_similarity
+        distance = min(distances)
+        if distance <= 1e-8:
+            distance = 1
+        #print('distance sdo: ', distance, ' ---- label: ', prob_G.argmax().item(), ' ---- prob: ', prob_G)
+        return distance
     
-    def eval_fitness_dso(self, graphX, blackbox, distance_function, alpha1, alpha2):
-        similarity = 1.0 - distance_function(graphX, self)
-        similarity = 0.0 if similarity <= 0 else 1.0 - similarity
-        
-        y_X = blackbox.predict(graphX.x, ensure_undirected(graphX.edge_index), None, 1)
-        y_G = blackbox.predict(self.x, ensure_undirected(self.edge_index), None, 1)
-        target_similarity = 1.0 if y_X == y_G else 0.0
-        
-        #print('record_similarity: ', similarity, '-- evaluation: ', target_similarity)
-        return alpha1 * similarity + alpha2 * target_similarity
-    
-    def eval_fitness_ddo(self, graphX, blackbox, distance_function, alpha1, alpha2):
-        similarity = 1.0 - distance_function(graphX, self)
-        similarity = 0.0 if similarity <= 0 else 1.0 - similarity
-        
-        y_X = blackbox.predict(graphX.x, ensure_undirected(graphX.edge_index), None, 1)
-        y_G = blackbox.predict(self.x, ensure_undirected(self.edge_index), None, 1)
-        target_similarity = 1.0 if y_X != y_G else 0.0
-        
-        #print('record_similarity: ', similarity, '-- evaluation: ', target_similarity)
-        return alpha1 * similarity + alpha2 * target_similarity
-    
-    def mutate(self, graphX, blackbox, distance_function, alpha1, alpha2, case_type):
-        edge_list = set(tuple(edge.tolist()) for edge in self.edge_index.T)
+    def mutate(self, graphX, blackbox, distance_function, alpha1, alpha2, case_type, DO_graphs):
+        edge_list = set(map(tuple, self.edge_index.T.tolist()))
         num_nodes = self.num_nodes
+        feature_dim = self.x.size(1)
+        mutation_choices = ['add_edge', 'remove_edge', 'change_node', 'add_node', 'remove_node']
+        mutation_probs = [0.2, 0.2, 0.2, 0.2, 0.2]  
+
+        mutation_type = random.choices(mutation_choices, weights=mutation_probs, k=1)[0]
+        new_x = self.x.clone()
         
-        if random.random() <= 0.5:
-            u, v = random.sample(range(num_nodes), 2)
-            edge = (u, v) if u < v else (v, u)
-            if edge not in edge_list:
-                edge_list.add(edge)
-        else:  
+        if mutation_type == 'add_edge':
+            for _ in range(10):
+                u, v = random.sample(range(num_nodes), 2)
+                edge = (u, v) if u < v else (v, u)
+                if edge not in edge_list:
+                    edge_list.add(edge)
+                    break
+
+        elif mutation_type == 'remove_edge':
             if edge_list:
                 edge = random.choice(list(edge_list))
                 edge_list.remove(edge)
-        
-        new_edge_index = torch.tensor(list(edge_list), dtype=torch.long).T
-    
-        new_x = self.x.clone()
-        mutation_rate = 0.1
-        for i in range(self.num_nodes):
-            if random.random() < mutation_rate:
-                if torch.all((new_x[i] == 0) | (new_x[i] == 1)):  
-                    current_category = torch.argmax(new_x[i]).item()
-                    new_category = random.choice([j for j in range(new_x.size(1)) if j != current_category])
-                    new_x[i] = torch.zeros_like(new_x[i])
-                    new_x[i][new_category] = 1
-                else:
-                    noise = torch.randn_like(new_x[i]) * 0.05
-                    new_x[i] = torch.nn.functional.softmax(new_x[i] + noise, dim=0)
                 
+        elif mutation_type == 'add_node':
+            new_node = torch.zeros_like(self.x[0])
+            new_node[random.randint(0, feature_dim - 1)] = 1
+            new_x = torch.cat([new_x, new_node.unsqueeze(0)], dim=0)
+            
+            if edge_list:
+                u = random.randint(0, num_nodes - 2)
+                edge = (u, num_nodes - 1) if u < num_nodes - 1 else (num_nodes - 1, u)
+                edge_list.add(edge)
+                
+        elif mutation_type == 'remove_node':
+            index = random.randint(0, num_nodes - 1)
+            new_x = torch.cat([new_x[:index], new_x[index + 1:]], dim=0)
+            edge_list = {edge for edge in edge_list if index not in edge}
+            edge_list = {(u - 1 if u > index else u, v - 1 if v > index else v) for u, v in edge_list}
+            edge_list = set(tuple(edge) for edge in edge_list)
+                
+        else:
+            index = random.randint(0, num_nodes - 1)
+            current_label = torch.argmax(new_x[index]).item()
+            
+            new_label = random.choice([j for j in range(new_x.size(1)) if j != current_label])
+            new_x[index] = torch.zeros_like(new_x[index])
+            new_x[index][new_label] = 1
+        
+        edge_list = list(edge_list)
+        if len(edge_list) < 2 or new_x.size(0) < 2:
+            return self
+        
+        new_edge_index = torch.tensor(edge_list, dtype=torch.long).T
         mutated_graph = GraphGenome(Data(x=new_x, edge_index=new_edge_index))
         
         if case_type == 'sso':
             mutated_graph.fitness = mutated_graph.eval_fitness_sso(graphX, blackbox, distance_function, alpha1, alpha2)
-        elif case_type == 'sdo':
-            mutated_graph.fitness = mutated_graph.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2)
-        elif case_type == 'dso':
-            mutated_graph.fitness = mutated_graph.eval_fitness_dso(graphX, blackbox, distance_function, alpha1, alpha2)
         else:
-            mutated_graph.fitness = mutated_graph.eval_fitness_ddo(graphX, blackbox, distance_function, alpha1, alpha2)
-            
+            mutated_graph.fitness = mutated_graph.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2, DO_graphs)
+        
         return mutated_graph
     
-    def crossover(self, other, graphX, blackbox, distance_function, alpha1, alpha2, case_type):
-        # cat doan edge tu cha va me
+    def crossover(self, other, graphX, blackbox, distance_function, alpha1, alpha2, case_type, DO_graphs):
         parent1_edges = [tuple(edge.tolist()) for edge in self.edge_index.T]
         parent2_edges = [tuple(edge.tolist()) for edge in other.edge_index.T]
-
+        parent1_edges = list(set(parent1_edges))
+        parent2_edges = list(set(parent2_edges))
+        
         if len(parent1_edges) < 2 or len(parent2_edges) < 2:
             return self  
 
-        cut1, cut2 = sorted(random.sample(range(len(parent1_edges)), 2))
+        parent_size = min(len(parent1_edges), len(parent2_edges))
+        cut1, cut2 = sorted(random.sample(range(parent_size), 2))
+        if cut1 == cut2:
+            cut2 = min(cut1 + 1, parent_size - 1)
         child_edges = parent1_edges[:cut1] + parent2_edges[cut1:cut2] + parent1_edges[cut2:]
+        child_edges = list(set(child_edges)) 
+        all_node_ids = sorted(set([u for u, v in child_edges] + [v for u, v in child_edges] + list(range(self.num_nodes))))
+        node_id_map = {old_id: new_id for new_id, old_id in enumerate(all_node_ids)}
 
-        child_edges = list(set(child_edges))  
-        
-        new_edge_index = torch.tensor(child_edges, dtype=torch.long).T
-        
-        child = GraphGenome(Data(x=self.x.clone(), edge_index=new_edge_index))
+        remapped_edges = [(node_id_map[u], node_id_map[v]) for u, v in child_edges]
+        new_edge_index = torch.tensor(remapped_edges, dtype=torch.long).T
+        feature_dim = self.x.size(1)
+        new_x = torch.zeros((len(all_node_ids), feature_dim))
+
+        for old_id, new_id in node_id_map.items():
+            if old_id < self.num_nodes:
+                new_x[new_id] = self.x[old_id]
+            elif old_id < other.num_nodes:
+                new_x[new_id] = other.x[old_id]
+            else:
+                print(f"Warning: Node ID {old_id} not found in either parent.")
+                new_x[new_id] = torch.randn(feature_dim)
+                
+        child = GraphGenome(Data(x=new_x, edge_index=new_edge_index))
         
         if case_type == 'sso':
             child.fitness = child.eval_fitness_sso(graphX, blackbox, distance_function, alpha1, alpha2)
-        elif case_type == 'sdo':
-            child.fitness = child.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2)
-        elif case_type == 'dso':
-            child.fitness = child.eval_fitness_dso(graphX, blackbox, distance_function, alpha1, alpha2)
         else:
-            child.fitness = child.eval_fitness_ddo(graphX, blackbox, distance_function, alpha1, alpha2)
+            child.fitness = child.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2, DO_graphs)
 
         return child
 
 
+    
+    # def mutate(self, graphX, blackbox, distance_function, alpha1, alpha2, case_type, DO_graphs):
+    #     edge_list = set(tuple(edge.tolist()) for edge in self.edge_index.T)
+    #     num_nodes = self.num_nodes
+        
+    #     mutation_type = random.choice(['add_edge', 'remove_edge', 'change_node'])
+    #     new_x = self.x.clone()
+        
+    #     if mutation_type == 'add_edge':
+    #         u, v = random.sample(range(num_nodes), 2)
+    #         edge = (u, v) if u < v else (v, u)
+    #         if edge not in edge_list:
+    #             edge_list.add(edge)
+    #     elif mutation_type == 'remove_edge':
+    #         if edge_list:
+    #             edge = random.choice(list(edge_list))
+    #             edge_list.remove(edge)
+    #     else:
+    #         index = random.randint(0, num_nodes - 1)
+    #         current_label = torch.argmax(new_x[index]).item()
+            
+    #         new_label = random.choice([j for j in range(new_x.size(1)) if j != current_label])
+    #         new_x[index] = torch.zeros_like(new_x[index])
+    #         new_x[index][new_label] = 1
+                
+    #     new_edge_index = torch.tensor(list(edge_list), dtype=torch.long).T
+    #     mutated_graph = GraphGenome(Data(x=new_x, edge_index=new_edge_index))
+        
+    #     if case_type == 'sso':
+    #         mutated_graph.fitness = mutated_graph.eval_fitness_sso(graphX, blackbox, distance_function, alpha1, alpha2)
+    #     elif case_type == 'sdo':
+    #         mutated_graph.fitness = mutated_graph.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2, DO_graphs)
+    #     elif case_type == 'dso':
+    #         mutated_graph.fitness = mutated_graph.eval_fitness_dso(graphX, blackbox, distance_function, alpha1, alpha2)
+    #     else:
+    #         mutated_graph.fitness = mutated_graph.eval_fitness_ddo(graphX, blackbox, distance_function, alpha1, alpha2)
+            
+    #     return mutated_graph
+    
+    # def crossover(self, other, graphX, blackbox, distance_function, alpha1, alpha2, case_type, DO_graphs):
+    #     parent1_edges = [tuple(edge.tolist()) for edge in self.edge_index.T]
+    #     parent2_edges = [tuple(edge.tolist()) for edge in other.edge_index.T]
 
-def initialize_population(size, graphX, blackbox, distance_function, alpha1, alpha2, case_type):
+    #     if len(parent1_edges) < 2 or len(parent2_edges) < 2:
+    #         return self  
+
+    #     parent_size = len(parent1_edges)
+    #     cut1, cut2 = sorted(random.sample(range(parent_size), 2))
+    #     child_edges = parent1_edges[:cut1] + parent2_edges[cut1:cut2] + parent1_edges[cut2:]
+    #     child_edges = list(set(child_edges))  
+    #     new_edge_index = torch.tensor(child_edges, dtype=torch.long).T
+        
+    #     new_x = self.x.clone()
+    #     # if node comes from parent2, change label
+    #     for i in range(cut1, cut2):
+    #         index = self.edge_index[0][i].item() # nút source (source, target) trong edge
+    #         current_label = torch.argmax(new_x[index]).item()
+    #         new_label = torch.argmax(other.x[index]).item()
+    #         if current_label != new_label:
+    #             new_x[index] = torch.zeros_like(new_x[index])
+    #             new_x[index][new_label] = 1
+                
+    #     child = GraphGenome(Data(x=new_x, edge_index=new_edge_index))
+        
+    #     if case_type == 'sso':
+    #         child.fitness = child.eval_fitness_sso(graphX, blackbox, distance_function, alpha1, alpha2)
+    #     elif case_type == 'sdo':
+    #         child.fitness = child.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2, DO_graphs)
+    #     elif case_type == 'dso':
+    #         child.fitness = child.eval_fitness_dso(graphX, blackbox, distance_function, alpha1, alpha2)
+    #     else:
+    #         child.fitness = child.eval_fitness_ddo(graphX, blackbox, distance_function, alpha1, alpha2)
+
+    #     return child
+
+
+
+def initialize_population(size, graphX, blackbox, distance_function, alpha1, alpha2, case_type, DO_graphs):
     population = []
     for _ in range(size):
-        individual = GraphGenome(graphX).mutate(graphX, blackbox, distance_function, alpha1, alpha2, case_type)
+        individual = GraphGenome(graphX).mutate(graphX, blackbox, distance_function, alpha1, alpha2, case_type, DO_graphs)
         population.append(individual)
-        
     
     for individual in population:
         if case_type == 'sso':
             individual.fitness = individual.eval_fitness_sso(graphX, blackbox, distance_function, alpha1, alpha2)
-        elif case_type == 'sdo':
-            individual.fitness = individual.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2)
-        elif case_type == 'dso':
-            individual.fitness = individual.eval_fitness_dso(graphX, blackbox, distance_function, alpha1, alpha2)
         else:
-            individual.fitness = individual.eval_fitness_ddo(graphX, blackbox, distance_function, alpha1, alpha2)
-            
+            individual.fitness = individual.eval_fitness_sdo(graphX, blackbox, distance_function, alpha1, alpha2, DO_graphs)
+        
     return population
 
 def select_parents(population, ratio):
-    population.sort(key=lambda individual: individual.fitness, reverse=True)
-    return population[:int(ratio * len(population))]
+    unique_fitness = {}
+    for individual in population:
+        if individual.fitness not in unique_fitness:
+            unique_fitness[individual.fitness] = individual
+    
+    distinct_population = list(unique_fitness.values())
+    distinct_population.sort(key=lambda individual: individual.fitness)
+    
+    return distinct_population[:int(ratio * len(distinct_population))]
 
-def tournament_selection(population, tournament_size=3):
-    selected = random.sample(population, tournament_size)
-    selected.sort(key=lambda ind: ind.fitness, reverse=True)
-    return selected[0] 
+def get_graphs_DO_embedding(label, dataset, blackbox):
+    DO_graphs_embedding = []
+    for i in range(len(dataset)):
+        if dataset[i].y != label:
+            prob_X, embedding_X = blackbox.predict(dataset[i].x, dataset[i].edge_index, None)
+        
+            # uX = F.softmax(embedding_X, dim=1)
+            uX = F.normalize(embedding_X, p=2, dim=1)
+            DO_graphs_embedding.append(uX)
+    return DO_graphs_embedding
 
-def genetic_algorithm(graphX, populationSize, generations, blackbox, distance_function, alpha1, alpha2):
+def genetic_algorithm(graphX, populationSize, generations, blackbox, distance_function, alpha1, alpha2, dataset):
     case_population_size = populationSize // 2
     case_type = ['sso', 'sdo']
     populations = {}
+    DO_graphs_embedding = get_graphs_DO_embedding(graphX.y, dataset, blackbox)
         
     for type in case_type:
         populations[type] = initialize_population(
-                    case_population_size, graphX, blackbox, distance_function, alpha1, alpha2, type
+                    case_population_size, graphX, blackbox, distance_function, alpha1, alpha2, type, DO_graphs_embedding
                 )
+        
+        
         for gen in range(generations):
             print(f"{type} : Generation {gen+1}/{generations} =====")
             new_population = []
-            best_individuals = select_parents(populations[type], 0.4)
-            new_population.extend(best_individuals[:len(best_individuals) // 2])
-            while len(new_population) < case_population_size:
-                parent1 = tournament_selection(populations[type])
-                parent2 = tournament_selection(populations[type])
-                child = parent1.crossover(parent2, graphX, blackbox, distance_function, alpha1, alpha2, type)
-                if random.random() < 0.5:
-                    child = child.mutate(graphX, blackbox, distance_function, alpha1, alpha2, type)
+            best_individuals = select_parents(populations[type], 0.1)
+            new_population.extend(best_individuals[:len(best_individuals) // 2]) # di truyen qua the he sau
+            fitness_set = set(ind.fitness for ind in new_population)
+            while len(new_population) < case_population_size: #200
+                parent1, parent2 = random.sample(best_individuals, 2)
+                child = parent1.crossover(parent2, graphX, blackbox, distance_function, alpha1, alpha2, type, DO_graphs_embedding)
+                child = child.mutate(graphX, blackbox, distance_function, alpha1, alpha2, type, DO_graphs_embedding)
                 
-                new_population.append(child)
+                #child = child.mutate(graphX, blackbox, distance_function, alpha1, alpha2, type, DO_graphs_embedding)
+                
+                phi = 1e-8  
+                if not any(abs(child.fitness - f) < phi for f in fitness_set):
+                    fitness_set.add(child.fitness)
+                    new_population.append(child)
                     
             populations[type] = new_population
             

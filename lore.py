@@ -124,7 +124,7 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
             #generate_random_data, #genetic_neighborhood, random_neighborhood
             discrete_use_probabilities=False,
             continuous_function_estimation=False,
-            returns_infos=False, path='./', sep=';', log=False):
+            returns_infos=False, path='./', sep=';', log=False, max_nodes=0):
 
     random.seed(0)
     class_name = dataset['class_name']
@@ -139,7 +139,8 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
 
     print('dfZ of modified: ', dfZ)
     # Apply Black Box and Decision Tree on instance to explain
-    bb_outcome = blackbox.predict(graphX.x, graphX.edge_index, None, 1).argmax(dim =-1).item()
+    pred, embedding = blackbox.predict(graphX.x, graphX.edge_index, None)
+    bb_outcome = pred.argmax(dim=-1).item()
     print('bb_outcome: ', bb_outcome)
 
     # Build Decision Tree
@@ -147,8 +148,9 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
 
     # predict the outcome of the instance to explain
     #dfx = build_df2explain(blackbox, x, dataset).to_dict('records')[0]
-    dfx = prepare_dataframe([graphX], blackbox, device, ground_truth=False, only_edge=True)
-    print('dfx: ', dfx)
+    dfx = prepare_dataframe([graphX], blackbox, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
+    
+    print('dfx: ', dfx.to_dict('records')[0])
     cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
 
     # Apply Black Box and Decision Tree on neighborhood

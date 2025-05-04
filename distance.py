@@ -4,7 +4,7 @@ import ot
 from torch_geometric.utils import to_dense_adj
 
 
-def filter_undirected_edges(edge_index):
+def remove_bidirectional_edge(edge_index):
     edge_set = set()
     unique_edges = []
     

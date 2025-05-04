@@ -25,6 +25,7 @@ from model.gin import *
 from torch_geometric.datasets import TUDataset
 from sklearn.model_selection import train_test_split
 from genetic import *
+from model.gcn import GCN
 
 def permute_graph(data):
     num_nodes = data.num_nodes
@@ -117,48 +118,53 @@ def main():
     ba_name = 'BA2Motif'
     mutag_name = 'MUTAG'
     
-    dataset = generate_dataset(ba_name)
+    dataset = generate_dataset(mutag_name)
     test_dataset = dataset
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     model = GIN(
         in_channels=dataset.num_features,
         hidden_channels=32,
         out_channels=dataset.num_classes,
         num_layers=5,
     ).to(device)
-    model.load_state_dict(torch.load('model/model.pth'))
+    model.load_state_dict(torch.load('model/GIN_mutag.pth'))
     model.eval()
-    model.to(device)
 
     # blackbox
-    df = prepare_dataframe(test_dataset, model, device, ground_truth=True, only_edge=True)
+    df = prepare_dataframe(test_dataset, model, device, ground_truth=True, only_edge=True, node_label=True)
     print('df: ', df)
     dataset = prepare_dataset(df)
     path_data = 'datasets/'
-    idx_record2explain = 724 #(72 & 724)
+    idx_record2explain = 0 #(72 & 724)
     
     #generate sample
     graphX = test_dataset[idx_record2explain]
     
-    graphX = Data(x=graphX.x, edge_index=filter_undirected_edges(graphX.edge_index))
-    final_population = genetic_algorithm(graphX = graphX, populationSize=400, generations=20, blackbox=model, 
-                                     distance_function=my_distance2, 
-                                     alpha1=0.5, alpha2=0.5)
+    with open('mutagX.pkl', 'wb') as f:
+        pickle.dump(graphX, f)
     
-    dfZ = prepare_dataframe(final_population, model, device, ground_truth=False, only_edge=True)
+    graphX.edge_index = remove_bidirectional_edge(graphX.edge_index)
+    final_population = genetic_algorithm(graphX = graphX, populationSize=1000, generations=10, blackbox=model, 
+                                     distance_function=my_distance2, 
+                                     alpha1=0.5, alpha2=0.5, dataset=test_dataset)
+    max_nodes = max(graphX.x.size(0) for graphX in final_population)
+        
+    dfZ = prepare_dataframe(final_population, model, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
+
     print('df_0: ', dfZ[dfZ['y'] == 0].shape[0])
     print('df_1: ', dfZ[dfZ['y'] == 1].shape[0])
     graphX.edge_index = ensure_undirected(graphX.edge_index)
 
     y_pred_list = df['y'].tolist()
     y2E = np.asarray([dataset['possible_outcomes'][i] for i in y_pred_list])
-
+    dataset = prepare_dataset(dfZ)
     explanation, infos = lore.explain_graph(idx_record2explain, dfZ, graphX, dataset, model,
                                         discrete_use_probabilities=True,
                                         continuous_function_estimation=False,
                                         returns_infos=True,
-                                        path=path_data, sep=';', log=False)
+                                        path=path_data, sep=';', log=True, max_nodes=max_nodes)
     dfX2E = df.to_dict('records')
     # dfx = dfX2E[idx_record2explain]
     dfx = prepare_dataframe([graphX], model, device, ground_truth=False, only_edge=True)
