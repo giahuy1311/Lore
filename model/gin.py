@@ -45,13 +45,13 @@ class GIN(torch.nn.Module):
             nn.Linear(hidden_channels, out_channels),
         )
 
-    def forward(self, x, edge_index, batch, batch_size, return_embeddings=False):
+    def forward(self, x, edge_index, batch, return_embeddings=False):
         for conv, batch_norm in zip(self.convs, self.batch_norms):
             x = conv(x, edge_index)
             x = batch_norm(x).relu()  
 
         node_embeddings = x 
-        graph_embedding = global_add_pool(x, batch, size=batch_size)
+        graph_embedding = global_add_pool(x, batch)
         
         output = self.mlp(graph_embedding)
     
@@ -61,30 +61,19 @@ class GIN(torch.nn.Module):
         return output
 
     
-    def predict(self, x, edge_index, batch, batch_size, get_embeddings=False):
+    def predict(self, x, edge_index, batch, get_embeddings=True):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         x = x.to(device)
         edge_index = edge_index.to(device)
         if batch is not None:
           batch = batch.to(device)
-        out = self.forward(x, edge_index, batch, batch_size, return_embeddings=get_embeddings)
-        probs = F.softmax(out, dim=-1)
+        out = self.forward(x, edge_index, batch, return_embeddings=get_embeddings)
+        probs = F.softmax(out[0], dim=-1)
         if get_embeddings:
-            return probs, out[1]
+            return probs, out[2]
         else:
             return probs
-        # return out.argmax(dim=-1)
     
-    # def predict(self, mean_embedding, decoder, batch, batch_size):
-    #     mean_embedding = torch.tensor(mean_embedding, dtype=torch.float32)
-    #     reconstructed_embeddings = decoder(mean_embedding) 
-
-    #     graph_embedding = global_add_pool(reconstructed_embeddings,batch, batch_size)
-
-    #     graph_label_pred = self.mlp(graph_embedding)
-
-    #     _, predicted = graph_label_pred.max(dim=1)
-    #     return predicted.item()
     
 def train(model, train_loader, optimizer, device):
     model.train()
@@ -92,7 +81,7 @@ def train(model, train_loader, optimizer, device):
     for data in train_loader:
         data = data.to(device)
         optimizer.zero_grad()
-        out = model(data.x, data.edge_index, data.batch, data.batch_size)
+        out = model(data.x, data.edge_index, data.batch)
         loss = F.cross_entropy(out, data.y)
         loss.backward()
         optimizer.step()
@@ -105,7 +94,7 @@ def test(model,loader, device):
     total_correct = 0
     for data in loader:
         data = data.to(device)
-        out = model(data.x, data.edge_index, data.batch, data.batch_size)
+        out = model(data.x, data.edge_index, data.batch)
         pred = out.argmax(dim=-1)
         total_correct += int((pred == data.y).sum())
     return total_correct / len(loader.dataset)
@@ -121,62 +110,6 @@ def get_node_embeddings(model,loader, device):
         all_embeddings.append(node_embeddings.cpu())
     return torch.cat(all_embeddings, dim=0)
 
-
-@torch.no_grad()
-def get_graph_features_df(device, loader):
-    all_graphs = []  
-    labels = []
-    atom_types = ["C", "N", "O", "F", "I", "Cl", "Br"]
-    for data in loader:
-        data = data.to(device)
-
-        num_graphs = data.batch_size
-        for i in range(num_graphs):
-            mask = (data.batch == i)  
-            node_labels = [atom_types.index(atom_types[x.argmax().item()]) + 1 for x in data.x[mask]]
-
-            all_graphs.append(node_labels)
-            labels.append(data.y[i].item())
-
-    max_nodes = max(len(graph) for graph in all_graphs)
-
-    padded_graphs = [graph + [0] * (max_nodes - len(graph)) for graph in all_graphs]
-    columns = [f'node_{i}' for i in range(max_nodes)]
-
-    
-    df = pd.DataFrame(padded_graphs, columns=columns)
-    df['y'] = labels
-
-    return df
-
-@torch.no_grad()
-def extract_graph_info(loader):
-    graph_info_array = []
-    
-    for batch in loader:
-        edge_index = batch.edge_index
-        ptr = batch.ptr  
-        num_graphs = len(ptr) - 1 
-        
-        for i in range(num_graphs):
-            start, end = ptr[i].item(), ptr[i + 1].item()  
-            mask = (batch.batch == i) 
-            
-            node_features = batch.x[mask].cpu().numpy()
-    
-            sub_edge_index = edge_index[:, (edge_index[0] >= start) & (edge_index[0] < end)] - start
-            sub_edge_index = sub_edge_index.cpu().numpy()
-            label = batch.y[i].item()
-            
-            graph_info = {
-                "x": node_features,
-                "edge_index": sub_edge_index,
-                "y": label
-            }
-            graph_info_array.append(graph_info)
-    
-    return graph_info_array
-
 @torch.no_grad()
 def predict_graph(model, device, graph_info):
     model.eval()
@@ -189,19 +122,6 @@ def predict_graph(model, device, graph_info):
 
     predictions = output.argmax(dim=-1) 
     return predictions.numpy().reshape(-1)
-
-@torch.no_grad()
-def predict_single_graph(model, graph, device):
-    model.eval()
-    
-    graph.batch = torch.zeros(graph.x.size(0), dtype=torch.long)  
-    batch = Batch.from_data_list([graph]).to(device)
-
-    out = model(batch.x, batch.edge_index, batch.batch, batch_size=1)
-    
-    predicted_label = out.argmax(dim=-1).item()
-    
-    return predicted_label
 
 def create_adjacency_matrix(edge_index, num_nodes):
     adj_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.int)
@@ -231,13 +151,13 @@ def ensure_undirected(edge_index):
     
     return torch.tensor(bidirectional_edges, dtype=torch.long).T
 
-def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge = False, node_label = False):
+def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge = False, node_label = False, max_nodes = 0):
     all_embeddings = []
     edge_dicts = []
     labels = []
     node_labels = []
     model.eval() 
-    
+    max_nodes = max_nodes if max_nodes > 0 else max(len(graph.x) for graph in list_graph)
     with torch.no_grad():
         for graph in list_graph:
             x = graph.x.to(device)
@@ -249,34 +169,36 @@ def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge
                 mean_node_embedding = node_embeddings.mean(dim=1).cpu().numpy()
                 all_embeddings.append(mean_node_embedding.tolist())
             
-            # tao ma tran ke va chuyen thanh dict
-            num_nodes = graph.num_nodes
+            num_nodes = graph.x.size(0)
             adj_matrix = create_adjacency_matrix(graph.edge_index.cpu(), num_nodes)
-            edge_dict = {f'n{r}_n{c}': adj_matrix[r, c].item() 
-                         for r in range(num_nodes) for c in range(r, num_nodes)}
+
+            edge_dict = {}
+            for r in range(max_nodes):
+                for c in range(r, max_nodes):
+                    if r < num_nodes and c < num_nodes:
+                        edge_dict[f'n{r}_n{c}'] = adj_matrix[r, c].item()
+                    else:
+                        edge_dict[f'n{r}_n{c}'] = 0
             edge_dicts.append(edge_dict)
-            
-            # y tu data hoac model
             if ground_truth:
                 labels.append(graph.y.item())
             else :
-                prediction = model.predict(x, edge_index, None, 1).argmax(dim=-1)
-                labels.append(prediction.item())
-            
-            # node labels
-            atom_types = ["C", "N", "O", "F", "I", "Cl", "Br"]
-            # node_labels = {i: atom_types[x.argmax().item()] for i, x in enumerate(data.x)}  
-            if node_label:
-                node_label_list = [atom_types[x.argmax().item()] for x in x]
-                node_labels.append(node_label_list)
+                prediction, embedding = model.predict(x, edge_index, None)
+                labels.append(prediction.argmax(dim=-1).item())
                 
+            atom_types = ["C", "N", "O", "F", "I", "Cl", "Br"]
+            if node_label:
+                node_label_list = ["None"] * max_nodes
+                for i in range(num_nodes):
+                    node_label_list[i] = atom_types[x[i].argmax().item()]
+                node_labels.append(node_label_list)
 
     max_embed_dim = max(len(embed) for embed in all_embeddings) if all_embeddings else 0
     embed_columns = [f'nE_{i}' for i in range(max_embed_dim)]
-    
+    node_labels_columns = [f'nL_{i}' for i in range(max_nodes)]
     result_df = pd.DataFrame()
     if node_labels:
-        df_node_labels = pd.DataFrame(node_labels)
+        df_node_labels = pd.DataFrame(node_labels, columns=node_labels_columns)
         result_df = pd.concat([result_df, df_node_labels], axis=1)
     if all_embeddings:
         df_embeddings = pd.DataFrame(all_embeddings, columns=embed_columns)
