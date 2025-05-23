@@ -236,7 +236,7 @@ def dataframe2explain(X2E, dataset, idx_record2explain, blackbox, graphlist = No
 
     # Remove record to explain (optional) from dataset Z and convert into dataframe
     # Z = np.delete(Z, idx_record2explain, axis=0)
-    dfZ = build_df2explain(blackbox, Z, dataset, graphlist = graphlist)
+    dfZ = build_df2explain(blackbox, Z, dataset)
     
     return dfZ, x
 

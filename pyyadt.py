@@ -1,4 +1,5 @@
 import os
+
 import re
 import pydotplus
 import subprocess
@@ -11,10 +12,9 @@ from util import *
 
 from collections import defaultdict
 
-
 def fit(df, class_name, columns, features_type, discrete, continuous,
         filename='yadt_dataset', path='./', sep=';', log=False):
-    
+    os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
     data_filename = path + filename + '.data'
     names_filename = path + filename + '.names'
     tree_filename = path + filename + '.dot'
@@ -33,26 +33,12 @@ def fit(df, class_name, columns, features_type, discrete, continuous,
         data_filename, names_filename, sep, tree_filename)
     output = subprocess.check_output(cmd.split(), stderr=subprocess.STDOUT)
     
-    # try:
-    #     result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-    #     print("Command succeeded.")
-    #     print("Output:\n", result.stdout)
-    # except subprocess.CalledProcessError as e:
-    #     print("❌ Command failed with code:", e.returncode)
-    #     print("stderr:\n", e.stderr)
-    #     print("stdout:\n", e.stdout)
-    # cmd = r"dTcmd -fd %s -fm %s -sep '%s' -d %s" % (
-    #     data_filename, names_filename, sep, tree_filename)
-    # cmd = r'noah "%s"' % cmd
-    # print(cmd)
-    # output = subprocess.check_output(['noah', "%s" % cmd], stderr=subprocess.STDOUT)
     if log:
         print(cmd)
         print(output)
 
     dt = nx.DiGraph(nx.drawing.nx_pydot.read_dot(tree_filename))
     dt_dot = pydotplus.graph_from_dot_data(open(tree_filename, 'r').read())
-    
     if os.path.exists(data_filename):
         os.remove(data_filename)
         
@@ -287,8 +273,8 @@ def get_counterfactuals(dt, tree_path, rule, diff_outcome, class_name, continuou
         # delta = set(crule[1].items()) - set(rule[1].items())
         ccond = expand_rule(crule, continuous)
         delta, qlen = get_falsifeid_conditions(cond, ccond, continuous)
-        print(f"delta: {delta}")
-        print(f"diff: {qlen}")
+        # print(f"delta: {delta}")
+        # print(f"diff: {qlen}")
         if qlen < clen:
             clen = qlen
             counterfactuals = [delta]

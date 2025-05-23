@@ -50,16 +50,25 @@ def prepare_dataset(df):
 
     return dataset
 
+def generate_data(n_samples=1000, n_features=100):
+    # Sinh các feature nhị phân 0/1
+    X = np.random.randint(0, 2, size=(n_samples, n_features))
+    
+    # Sinh nhãn y = 1 nếu tổng các feature tại các chỉ số chẵn > 25
+    important_indices = np.arange(0, n_features, 2)  # x0, x2, x4,...
+    y = (X[:, important_indices].sum(axis=1) > (len(important_indices) // 2)).astype(int)
+
+
+    # Trả về dạng DataFrame
+    col_names = [f'x{i+1}' for i in range(n_features)]
+    df = pd.DataFrame(X, columns=col_names)
+    df['y'] = y
+    return df
 def main():
+
     
-    x1, x2, y = generate_data(1000)
     
-    
-    df = pd.DataFrame({'x1': x1, 'x2':x2, 'y': y}) 
-    # in số row có y = 1
-    print(df[df['y'] == 1].shape[0])
-    # in số row có y = 0
-    print(df[df['y'] == 0].shape[0])
+    df = generate_data(n_samples=1000, n_features=100) 
     
     dataset = prepare_dataset(df) # dùng lại từ lore
     
@@ -70,12 +79,9 @@ def main():
     model = RandomForestClassifier(random_state=42)
     model.fit(X_train, y_train)
     accuracy = model.score(X_test, y_test)
-    print('accuracy', accuracy)
     path_data = 'datasets/'
     idx_record2explain = 34
     X2E = X_test
-    #print('X2E', X2E)
-    # tạo neighbors = cách thêm nhiễu nhỏ random
     explanation, infos = lore.explain(idx_record2explain, X2E, dataset, model,
                                         ng_function=genetic_neighborhood,
                                         discrete_use_probabilities=True,
@@ -94,23 +100,23 @@ def main():
         print('delta', delta)
 
 
-def generate_data(n_samples):
-    def sample_point(label):
-        while True:
-            x1, x2 = np.random.uniform(0, 10, 2)
-            condition = ((x1-5)**2 - x2 <= -2) & (x2 <= 10 - x1)
-            if (label == 1 and condition) or (label == 0 and not condition):
-                return x1, x2
+# def generate_data(n_samples):
+#     def sample_point(label):
+#         while True:
+#             x1, x2 = np.random.uniform(0, 10, 2)
+#             condition = ((x1-5)**2 - x2 <= -2) & (x2 <= 10 - x1)
+#             if (label == 1 and condition) or (label == 0 and not condition):
+#                 return x1, x2
 
-    x1, x2, y = [], [], []
-    for label in [1, 0]:
-        for _ in range(n_samples):
-            xi, xj = sample_point(label)
-            x1.append(xi)
-            x2.append(xj)
-            y.append(label)
+#     x1, x2, y = [], [], []
+#     for label in [1, 0]:
+#         for _ in range(n_samples):
+#             xi, xj = sample_point(label)
+#             x1.append(xi)
+#             x2.append(xj)
+#             y.append(label)
 
-    return np.array(x1), np.array(x2), np.array(y)
+#     return np.array(x1), np.array(x2), np.array(y)
     
 if __name__ == "__main__":
     main()

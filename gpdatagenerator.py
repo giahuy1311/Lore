@@ -46,7 +46,7 @@ def fitness_sso(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     target_similarity = 1.0 if y0 == y1 else 0.0
     
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
-    print('record_similarity: ', record_similarity, '-- evaluation: ', target_similarity)
+
     return evaluation,
 
 
@@ -64,7 +64,7 @@ def fitness_sdo(x0, bb, alpha1, alpha2, eta, discrete, continuous, class_name, i
     target_similarity = 1.0 if y0 != y1 else 0.0
 
     evaluation = alpha1 * record_similarity + alpha2 * target_similarity
-    print('record_similarity: ', record_similarity, '-- evaluation: ', target_similarity)
+
     return evaluation,
 
 

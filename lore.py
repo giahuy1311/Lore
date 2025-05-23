@@ -5,8 +5,7 @@ from neighbor_generator import *
 from gpdatagenerator import calculate_feature_values
 
 from model.gin import *
-from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
+
 
 def explain(idx_record2explain, X2E, dataset, blackbox,
             ng_function=genetic_neighborhood, #generate_random_data, #genetic_neighborhood, random_neighborhood
@@ -137,24 +136,24 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    print('dfZ of modified: ', dfZ)
+    # print('dfZ of modified: ', dfZ)
     # Apply Black Box and Decision Tree on instance to explain
     pred, embedding = blackbox.predict(graphX.x, graphX.edge_index, None)
     bb_outcome = pred.argmax(dim=-1).item()
-    print('bb_outcome: ', bb_outcome)
+    # print('bb_outcome: ', bb_outcome)
 
     # Build Decision Tree
     dt, dt_dot = pyyadt.fit(dfZ, class_name, columns, features_type, discrete, continuous, path=path, sep=sep, log=log)
 
     # predict the outcome of the instance to explain
     #dfx = build_df2explain(blackbox, x, dataset).to_dict('records')[0]
+    print('graphX: ', graphX)
     dfx = prepare_dataframe([graphX], blackbox, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
     
-    print('dfx: ', dfx.to_dict('records')[0])
     cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
 
     # Apply Black Box and Decision Tree on neighborhood
-    #y_pred_bb = blackbox.predict(Z) # nhãn dự đoán của blackbox cho các điểm lân cận
+    y_pred_bb = dfZ['y'].tolist()  # nhãn dự đoán của blackbox cho các điểm lân cận
     
     # y_pred_cc: nhãn dự đoán của decision tree cho các điểm lân cận
     y_pred_cc, leaf_nodes = pyyadt.predict(dt, dfZ.to_dict('records'), class_name, features_type,
@@ -179,9 +178,9 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
     explanation = (rule, counterfactuals)
 
     infos = {
-        #'bb_outcome': bb_outcome,
+        'bb_outcome': bb_outcome,
         'cc_outcome': cc_outcome,
-        #'y_pred_bb': y_pred_bb,
+        'y_pred_bb': y_pred_bb,
         'y_pred_cc': y_pred_cc,
         'dfZ': dfZ,
         # 'Z': Z,

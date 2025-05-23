@@ -1,8 +1,5 @@
 import numpy as np
-import numpy as np
-from sklearn.preprocessing import LabelEncoder, StandardScaler
 from util import *
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import lore
 from prepare_dataset import *
@@ -10,15 +7,10 @@ from neighbor_generator import *
 import torch
 import random
 from torch_geometric.datasets import BA2MotifDataset
-from torch_geometric.nn import GINConv, GIN 
+from torch_geometric.nn import GIN 
 import pickle
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GIN
-import torch
-import torch.nn.functional as F
-from torch.nn import BatchNorm1d as BatchNorm
-from torch.nn import Linear, ReLU, Sequential
-from torch_geometric.nn import GINConv, global_add_pool
 from torch_geometric.nn.models import MLP
 from model.gin import GIN
 from model.gin import *
@@ -45,7 +37,24 @@ def permute_graph(data):
     permuted_data.edge_index = edge_index
     permuted_data.x = x
     return permuted_data
+
+def load_test_dataset(dataset_name, path_data):
+    if dataset_name == 'ba2motif':
+        dataset = BA2MotifDataset(root=path_data + 'BA2Motif')
+        with open('datasets/Ba2motif_splits.pkl', 'rb') as f:
+            split_indices = pickle.load(f)
+        test_idx = split_indices['test_idx']
+        test_dataset = [dataset[i] for i in test_idx]
+        test_dataset = dataset
+    elif dataset_name == 'mutag':
+        dataset = TUDataset(root=path_data + "TUDataset", name="MUTAG")
+        with open('datasets/MUTAG_splits.pkl', 'rb') as f:
+            split_indices = pickle.load(f)
+        test_idx = split_indices['test_idx']
+        test_dataset = [dataset[i] for i in test_idx]
     
+    return dataset, test_dataset
+
 def split_loader(dataset):
     indices = torch.randperm(len(dataset)).tolist()
     train_size = int(0.8 * len(dataset))
@@ -115,11 +124,10 @@ def eval(x, y):
     return 1 if x == y else 0
 
 def main():
-    ba_name = 'BA2Motif'
-    mutag_name = 'MUTAG'
+    ba_name = 'ba2motif'
+    mutag_name = 'mutag'
     
-    dataset = generate_dataset(mutag_name)
-    test_dataset = dataset
+    dataset, test_dataset = load_test_dataset(mutag_name, '')
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -128,10 +136,11 @@ def main():
         hidden_channels=32,
         out_channels=dataset.num_classes,
         num_layers=5,
-    ).to(device)
+    )
     model.load_state_dict(torch.load('model/GIN_mutag.pth'))
     model.eval()
 
+    graph2X = dataset[0]
     # blackbox
     df = prepare_dataframe(test_dataset, model, device, ground_truth=True, only_edge=True, node_label=True)
     print('df: ', df)
@@ -140,36 +149,40 @@ def main():
     idx_record2explain = 0 #(72 & 724)
     
     #generate sample
-    graphX = test_dataset[idx_record2explain]
+    
     
     with open('mutagX.pkl', 'wb') as f:
-        pickle.dump(graphX, f)
+        pickle.dump(graph2X, f)
     
-    graphX.edge_index = remove_bidirectional_edge(graphX.edge_index)
-    final_population = genetic_algorithm(graphX = graphX, populationSize=1000, generations=10, blackbox=model, 
-                                     distance_function=my_distance2, 
-                                     alpha1=0.5, alpha2=0.5, dataset=test_dataset)
-    max_nodes = max(graphX.x.size(0) for graphX in final_population)
+    final_population = genetic_algorithm(graph2X, population_size=2000, generations=2, blackbox=model, 
+                                      dataset=test_dataset)
+    
+    
+    list_graph = []
+    for individual in final_population:
+        graph = from_networkx(individual.graph)
+        list_graph.append(graph)
         
-    dfZ = prepare_dataframe(final_population, model, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
+    max_nodes = max(len(graph.x) for graph in list_graph)
+    dfZ = prepare_dataframe(list_graph, model, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
 
     print('df_0: ', dfZ[dfZ['y'] == 0].shape[0])
     print('df_1: ', dfZ[dfZ['y'] == 1].shape[0])
-    graphX.edge_index = ensure_undirected(graphX.edge_index)
+    # graphX = dataset[idx_record2explain]
 
     y_pred_list = df['y'].tolist()
     y2E = np.asarray([dataset['possible_outcomes'][i] for i in y_pred_list])
-    dataset = prepare_dataset(dfZ)
-    explanation, infos = lore.explain_graph(idx_record2explain, dfZ, graphX, dataset, model,
+    formatted_neighbor = prepare_dataset(dfZ)
+    explanation, infos = lore.explain_graph(idx_record2explain, dfZ, graph2X, formatted_neighbor, model,
                                         discrete_use_probabilities=True,
                                         continuous_function_estimation=False,
                                         returns_infos=True,
                                         path=path_data, sep=';', log=True, max_nodes=max_nodes)
     dfX2E = df.to_dict('records')
     # dfx = dfX2E[idx_record2explain]
-    dfx = prepare_dataframe([graphX], model, device, ground_truth=False, only_edge=True)
+    dfx = prepare_dataframe([graph2X], model, device, ground_truth=False, only_edge=True)
     # x = build_df2explain(blackbox, X2E[idx_record2explain].reshape(1, -1), dataset).to_dict('records')[0]
-    covered = lore.get_covered(explanation[0][1], dfX2E, dataset)
+    covered = lore.get_covered(explanation[0][1], dfX2E, formatted_neighbor)
     # for sample in covered:
     #     print(dataset['df'].iloc[sample])
         
