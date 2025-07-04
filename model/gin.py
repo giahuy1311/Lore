@@ -45,7 +45,7 @@ class GIN(torch.nn.Module):
             nn.Linear(hidden_channels, out_channels),
         )
 
-    def forward(self, x, edge_index, batch, return_embeddings=False):
+    def forward(self, x, edge_index, batch):
         for conv, batch_norm in zip(self.convs, self.batch_norms):
             x = conv(x, edge_index)
             x = batch_norm(x).relu()  
@@ -53,12 +53,9 @@ class GIN(torch.nn.Module):
         node_embeddings = x 
         graph_embedding = global_add_pool(x, batch)
         
-        output = self.mlp(graph_embedding)
+        logits = self.mlp(graph_embedding)
     
-        if return_embeddings:
-            return output, node_embeddings, graph_embedding
-        
-        return output
+        return logits, graph_embedding
 
     
     def predict(self, x, edge_index, batch, get_embeddings=True):
@@ -183,7 +180,10 @@ def prepare_dataframe(list_graph, model, device, ground_truth = False, only_edge
             if ground_truth:
                 labels.append(graph.y.item())
             else :
-                prediction, embedding = model.predict(x, edge_index, None)
+                # prediction, embedding = model.predict(x, edge_index, None)
+                prob, _ = model(x, edge_index, None)
+                prob = F.softmax(prob, dim=-1)
+                prediction = prob.cpu()
                 labels.append(prediction.argmax(dim=-1).item())
                 
             atom_types = ["C", "N", "O", "F", "I", "Cl", "Br"]

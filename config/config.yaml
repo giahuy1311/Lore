@@ -1,0 +1,20 @@
+defaults:
+  - models: gcn
+  - datasets: mutag
+  - explainers: gstarx
+  - override hydra/job_logging: disabled
+  - _self_
+  
+pop_size: 500
+gens: 2
+device_id: 0
+log_path: "log"
+log_level: 20
+console_log: True
+save_plot: True
+sparsity: 0.5
+
+hydra:
+  run:
+    dir: "."
+    

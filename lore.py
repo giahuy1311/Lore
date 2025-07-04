@@ -89,6 +89,8 @@ def explain(idx_record2explain, X2E, dataset, blackbox,
 
 def is_satisfied(x, rule, discrete, features_type):
     for col, val in rule.items():
+        if col not in x:
+            return False
         if col in discrete:
             if str(x[col]).strip() != val:
                 return False
@@ -138,8 +140,8 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
 
     # print('dfZ of modified: ', dfZ)
     # Apply Black Box and Decision Tree on instance to explain
-    pred, embedding = blackbox.predict(graphX.x, graphX.edge_index, None)
-    bb_outcome = pred.argmax(dim=-1).item()
+    pred, embedding = blackbox(graphX.x, graphX.edge_index, None)
+    bb_outcome = pred.softmax(dim=-1).argmax().item()
     # print('bb_outcome: ', bb_outcome)
 
     # Build Decision Tree
@@ -148,12 +150,12 @@ def explain_graph(idx_record2explain, dfZ, graphX, dataset, blackbox,
     # predict the outcome of the instance to explain
     #dfx = build_df2explain(blackbox, x, dataset).to_dict('records')[0]
     print('graphX: ', graphX)
-    dfx = prepare_dataframe([graphX], blackbox, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
+    dfx = prepare_dataframe([graphX], blackbox, device, ground_truth=False, only_edge=True, node_label=False, max_nodes=max_nodes)
     
     cc_outcome, rule, tree_path = pyyadt.predict_rule(dt, dfx, class_name, features_type, discrete, continuous)
 
     # Apply Black Box and Decision Tree on neighborhood
-    y_pred_bb = dfZ['y'].tolist()  # nhãn dự đoán của blackbox cho các điểm lân cận
+    y_pred_bb = dfZ['y'].tolist()  
     
     # y_pred_cc: nhãn dự đoán của decision tree cho các điểm lân cận
     y_pred_cc, leaf_nodes = pyyadt.predict(dt, dfZ.to_dict('records'), class_name, features_type,

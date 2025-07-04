@@ -18,6 +18,14 @@ from torch_geometric.datasets import TUDataset
 from sklearn.model_selection import train_test_split
 from genetic import *
 from model.gcn import GCN
+from hydra import compose, initialize
+from omegaconf import OmegaConf
+from model.gnnNets import get_gnnNets
+from dataset import get_dataset, get_dataloader
+import os
+
+initialize(config_path="config")
+config = compose(config_name="config", overrides=["datasets=ba_2motifs", "models=gcn_old", "explainers=tux"])
 
 def permute_graph(data):
     num_nodes = data.num_nodes
@@ -126,37 +134,62 @@ def eval(x, y):
 def main():
     ba_name = 'ba2motif'
     mutag_name = 'mutag'
-    
-    dataset, test_dataset = load_test_dataset(mutag_name, '')
+    pwd = os.getcwd()
+    config.datasets.dataset_root = os.path.join(pwd, "dataset")
+    config.models.gnn_saving_path = os.path.join(pwd, "checkpoints")
+    config.models.param = config.models.param[config.datasets.dataset_name]
+    dataset = get_dataset(
+        dataset_root=config.datasets.dataset_root,
+        dataset_name=config.datasets.dataset_name,
+    )
+    dataset.data.x = dataset.data.x.float()
+    dataset.data.y = dataset.data.y.squeeze().long()
+    if config.models.param.graph_classification:
+        dataloader_params = {
+            "batch_size": config.models.param.batch_size,
+            "random_split_flag": config.datasets.random_split_flag,
+            "data_split_ratio": config.datasets.data_split_ratio,
+            "seed": config.datasets.seed,
+        }
+        loader = get_dataloader(dataset, **dataloader_params)
+        test_indices = loader["test"].dataset.indices
+        if config.datasets.data_explain_cutoff > 0:
+            test_indices = test_indices[: config.datasets.data_explain_cutoff]
+
+    else:
+        node_indices_mask = (dataset.data.y != 0) * dataset.data.test_mask
+        node_indices = torch.where(node_indices_mask)[0]
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    model = GIN(
-        in_channels=dataset.num_features,
-        hidden_channels=32,
-        out_channels=dataset.num_classes,
-        num_layers=5,
+    
+    
+    test_dataset = [dataset[i] for i in test_indices]
+    model = get_gnnNets(
+        input_dim=dataset.num_node_features,
+        output_dim=dataset.num_classes,
+        model_config=config.models,
     )
-    model.load_state_dict(torch.load('model/GIN_mutag.pth'))
+    state_dict = torch.load(
+        os.path.join(
+            config.models.gnn_saving_path,
+            config.datasets.dataset_name,
+            f"{config.models.gnn_name}_"
+            f"{len(config.models.param.gnn_latent_dim)}l_latest.pth",
+        )
+    )["net"]
+    model.load_state_dict(state_dict)
     model.eval()
 
-    graph2X = dataset[0]
+    graph2X = dataset[773]
     # blackbox
-    df = prepare_dataframe(test_dataset, model, device, ground_truth=True, only_edge=True, node_label=True)
+    df = prepare_dataframe(test_dataset, model, device, ground_truth=True, only_edge=True, node_label=False)
     print('df: ', df)
     dataset = prepare_dataset(df)
     path_data = 'datasets/'
-    idx_record2explain = 0 #(72 & 724)
+    idx_record2explain = 135 #(72 & 724)
     
-    #generate sample
-    
-    
-    with open('mutagX.pkl', 'wb') as f:
-        pickle.dump(graph2X, f)
-    
-    final_population = genetic_algorithm(graph2X, population_size=2000, generations=2, blackbox=model, 
+    final_population = genetic_algorithm(graph2X, population_size=1000, generations=5, blackbox=model, 
                                       dataset=test_dataset)
-    
     
     list_graph = []
     for individual in final_population:
@@ -164,11 +197,10 @@ def main():
         list_graph.append(graph)
         
     max_nodes = max(len(graph.x) for graph in list_graph)
-    dfZ = prepare_dataframe(list_graph, model, device, ground_truth=False, only_edge=True, node_label=True, max_nodes=max_nodes)
+    dfZ = prepare_dataframe(list_graph, model, device, ground_truth=False, only_edge=True, node_label=False, max_nodes=max_nodes)
 
     print('df_0: ', dfZ[dfZ['y'] == 0].shape[0])
     print('df_1: ', dfZ[dfZ['y'] == 1].shape[0])
-    # graphX = dataset[idx_record2explain]
 
     y_pred_list = df['y'].tolist()
     y2E = np.asarray([dataset['possible_outcomes'][i] for i in y_pred_list])
@@ -185,15 +217,28 @@ def main():
     covered = lore.get_covered(explanation[0][1], dfX2E, formatted_neighbor)
     # for sample in covered:
     #     print(dataset['df'].iloc[sample])
-        
+    
+    # cc_outcome_lore = explanation[0][0][dataset['class_name']]
+    # lrule = explanation[0][1]
+    # covered_lore = lore.get_covered(lrule, dfX2E, formatted_neighbor)
+    # coverage_lore = len(covered_lore) / len(dfX2E)
+    # def eval(x, y):
+    #     return 1 if x == y else 0
+    # precision_lore = [1 - eval(v, cc_outcome_lore) for v in y2E[formatted_neighbor]]
+    # covered_Z_lore = lore.get_covered(lrule, infos['dfZ'].to_dict('records'), formatted_neighbor)
+    # coverage_Z_lore = len(covered_Z_lore) / len(infos['dfZ'])
+    # print('coverage_lore: ', coverage_lore)
+    # print('coverage_Z_lore: ', coverage_Z_lore)
+    # print('cc_outcome_lore: ', cc_outcome_lore)
+    
+    
     print("covered len:", len(covered))
     print('x = %s' % dfx)
     
     print('r = %s --> %s' % (explanation[0][1], explanation[0][0]))
     for delta in explanation[1]:
         print('delta', delta)
-    def eval(x, y):
-        return 1 if x == y else 0
+    
         
     precision = [1-eval(v, explanation[0][0][dataset['class_name']]) for v in y2E[covered]]
     print(precision)

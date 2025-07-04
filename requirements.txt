@@ -1,7 +1,7 @@
 deap
 imbalanced-learn
 joblib
-networkx==2.1
+networkx
 numpy
 pandas
 pydotplus
@@ -15,6 +15,10 @@ sklearn-compat
 threadpoolctl
 tzdata
 pydot==1.2.4
-torch
+torch==2.5.1
 torch_geometric
 pot
+hydra-core 
+omegaconf
+rdkit
+dive-into-graphs 

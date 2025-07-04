@@ -1,18 +1,18 @@
-FROM python:3.8
+FROM python:3.12
 
 # Install OS dependencies needed for build
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    g++ \
-    python3-dev \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-# Clone and install GED4py
-RUN pip install numpy cython
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     build-essential \
+#     g++ \
+#     python3-dev \
+#     git \
+#     && rm -rf /var/lib/apt/lists/*
+# # Clone and install GED4py
+# RUN pip install numpy cython
 
-RUN git clone https://github.com/chilligerchief/GED4py.git /ged4py
-WORKDIR /ged4py
-RUN pip install .
+# RUN git clone https://github.com/chilligerchief/GED4py.git /ged4py
+# WORKDIR /ged4py
+# RUN pip install .
 
 WORKDIR /app
 

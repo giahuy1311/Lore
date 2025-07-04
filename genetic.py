@@ -3,14 +3,14 @@ from torch_geometric.data import DataLoader
 import torch
 import random
 from torch_geometric.data import Data
-# from distance import *
+from distance import *
 import networkx as nx
 import random
 import torch
 from torch_geometric.data import Data
 from sklearn.preprocessing import normalize
 import torch.nn.functional as F
-from ged4py import GraphEditDistance
+from utils import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -378,81 +378,80 @@ def add_bidirectional_edges(edge_index):
         bidirectional_edges.append([v, u])
     
     return torch.tensor(bidirectional_edges, dtype=torch.long).T
-def eval_fitness_so(child_nx, graphX_nx, blackbox):
-    G1 = child_nx.graph
-    G2 = graphX_nx
-    ged = GraphEditDistance(1, 1, 1, 1) 
-    matrix = ged.compare([G1, G2], None)
-    distance = matrix[0, 1]
 
-    num_nodes = G1.number_of_nodes() + G2.number_of_nodes()
-    num_edges = G1.number_of_edges() + G2.number_of_edges()
-    distance = distance / (num_nodes + num_edges)
-
-    child = from_networkx(child_nx.graph)
-    graphX = from_networkx(graphX_nx)
-    prob_child, _ = blackbox.predict(child.x, child.edge_index, None)
-    prob_G, _ = blackbox.predict(graphX.x, graphX.edge_index, None)
-    target_similarity = torch.norm(prob_child - prob_G, p=2).item()
+# def eval_fitness_so(child_nx, graphX_nx, blackbox):
+#     child_string = graph_to_string(child_nx.graph)
+#     graphX_string = graph_to_string(graphX_nx)
+#     distance = levenshtein_ed(child_string, graphX_string)
+#     norm_distance = distance / max(len(child_string), len(graphX_string))
+#     if norm_distance == 0:
+#         norm_distance = 1
     
-    return 0.5 * distance + 0.5 * target_similarity
-
-def eval_fitness_do(child_nx, blackbox, DO_graphs_embedding):
-    child = from_networkx(child_nx.graph)
-    prob_child, _ = blackbox.predict(child.x, child.edge_index, None)
-    fitness = []
-    ged = GraphEditDistance(1, 1, 1, 1) 
-    for graph, prob in DO_graphs_embedding:
-        matrix = ged.compare([child_nx.graph, graph], None)
-        distance = matrix[0, 1]
-        
-        nums_nodes = child_nx.graph.number_of_nodes() + graph.number_of_nodes()
-        nums_edges = child_nx.graph.number_of_edges() + graph.number_of_edges()
-        distance = distance / (nums_nodes + nums_edges)
-        
-        target_similarity = torch.norm(prob_child - prob, p=2).item()
-        fitness.append(0.5 * distance + 0.5 * target_similarity)
-        
-    if not fitness:
-        return 1
-    return min(fitness)
-
-# def eval_fitness_so(child_nx, graphX_nx, blackbox):    
 #     child = from_networkx(child_nx.graph)
 #     graphX = from_networkx(graphX_nx)
-    
-#     probX, embedding_X = blackbox.predict(graphX.x, add_bidirectional_edges(graphX.edge_index), None)
-#     probG, embedding_G = blackbox.predict(child.x, add_bidirectional_edges(child.edge_index), None)
-    
-#     distance = torch.norm(F.normalize(embedding_X, p=2, dim=1) - F.normalize(embedding_G, p=2, dim=1), p=2).item()
-    
-#     if distance <= 0:
-#         distance = 1
-#     return distance
+#     prob_child, _ = blackbox.predict(child.x, child.edge_index, None)
+#     prob_G, _ = blackbox.predict(graphX.x, graphX.edge_index, None)
+#     target_similarity = torch.norm(prob_child - prob_G, p=2).item()
 
-# def eval_fitness_do(child_nx, blackbox, DO_graphs_embedding):
-#     # distances = []
-#     # ged = GraphEditDistance(1, 1, 1, 1) 
-#     # for graph in DO_graphs_embedding:
-#     #     matrix = ged.compare([child_nx.graph, graph], None)
-#     #     distances.append(matrix[0,1])
-    
-#     child = from_networkx(child_nx.graph)
-#     probG, embedding_G = blackbox.predict(child.x, add_bidirectional_edges(child.edge_index), None)
-#     uG = F.normalize(embedding_G, p=2, dim=1)
+#     return 0.5 * norm_distance + 0.5 * target_similarity
+
+# def eval_fitness_do(child_nx, blackbox, other_graphs):
 #     distances = []
-#     for embedding in DO_graphs_embedding:
-#         uX = embedding
-#         distance = torch.norm(uX - uG, p=2).item()
-#         if distance <= 0:
-#             distance = 1
-#         distances.append(distance)
+#     fitness = []
+#     child = from_networkx(child_nx.graph)
+#     prob_child, _ = blackbox.predict(child.x, child.edge_index, None)
+#     child_string = graph_to_string(child_nx.graph)
+#     for graph, prob in other_graphs:
+#         graph_string = graph_to_string(graph)
+#         distance = levenshtein_ed(child_string, graph_string)
+#         norm_distance = distance / max(len(child_string), len(graph_string))
+#         if norm_distance == 0:
+#             norm_distance = 1
+            
+#         target_similarity = torch.norm(prob_child - prob, p=2).item()
+#         fitness.append(0.5 * norm_distance + 0.5 * target_similarity)
         
-#     if not distances:
+            
+#     if not fitness:
 #         return 1
+
+#     return min(fitness)
+
+def eval_fitness_so(child_nx, graphX_nx, blackbox):    
+    child = from_networkx(child_nx.graph)
+    graphX = from_networkx(graphX_nx)
     
-#     distance = min(distances)
-#     return distance
+    logits_X, embedding_X = blackbox(graphX.x, add_bidirectional_edges(graphX.edge_index), None)
+    logits_G, embedding_G = blackbox(child.x, add_bidirectional_edges(child.edge_index), None)
+    # prob_X = F.softmax(logits_X, dim=1)
+    # prob_G = F.softmax(logits_G, dim=1)
+    
+    #distance = torch.norm(F.normalize(embedding_X, p=2, dim=1) - F.normalize(embedding_G, p=2, dim=1), p=2).item()
+    distance = torch.norm(logits_X - logits_G, p=2).item()
+    
+    if distance <= 0:
+        distance = 1
+    #distance = 0 if prob_X.argmax().item() == prob_G.argmax().item() else 1
+    return distance
+def eval_fitness_do(child_nx, blackbox, DO_graphs_embedding):
+    
+    child = from_networkx(child_nx.graph)
+    logit_G, embedding_G = blackbox(child.x, add_bidirectional_edges(child.edge_index), None)
+    prob_G = F.softmax(logit_G, dim=1)
+    uG = F.normalize(embedding_G, p=2, dim=1)
+    distances = []
+    for uX in DO_graphs_embedding:
+        distance = torch.norm(uX - logit_G, p=2).item()
+        if distance <= 0:
+            distance = 1
+        #distance = 0 if uX.argmax().item() == prob_G.argmax().item() else 1
+        distances.append(distance)
+        
+    if not distances:
+        return 1
+    
+    distance = min(distances)
+    return distance
 
 class Individual:
     def __init__(self, graph):
@@ -463,13 +462,13 @@ class Individual:
         return Individual(copy.deepcopy(self.graph))
 
     def mutate(self, graphX, blackbox, case_type, DO_graphs):
-        mutation_choices = ['add_edge', 'remove_edge', 'change_node', 'add_node', 'remove_node']
-        mutation_probs = [0.2, 0.2, 0.2, 0.2, 0.2]
+        mutation_choices = ['add_edge', 'remove_edge']
+        mutation_probs = [0.5, 0.5]  # Equal probability for each mutation type
         mutation_type = random.choices(mutation_choices, weights=mutation_probs, k=1)[0]
 
         mutated_graph = copy.deepcopy(self.graph)
         if mutated_graph.nodes is None or mutated_graph.edges is None:
-            return self
+            return None
         
         any_node = next(iter(mutated_graph.nodes))
         feature_dim = len(mutated_graph.nodes[any_node].get('x'))
@@ -516,9 +515,9 @@ class Individual:
             mutated_graph.nodes[node_id]['x'] = new_feature
 
         if len(mutated_graph.nodes) < 2 or len(mutated_graph.edges) < 1:
-            return self
-        if not nx.is_connected(mutated_graph):
-            return self
+            return None
+        # if not nx.is_connected(mutated_graph):
+        #     return self
         
         prepare_networkx_for_pyg(mutated_graph)
         child = Individual(mutated_graph)
@@ -535,22 +534,23 @@ class Individual:
         nodes1 = list(G1.nodes)
         nodes2 = list(G2.nodes)
 
-        cut1 = random.choice(range(1, len(nodes1)))
-        cut2 = random.choice(range(1, len(nodes2)))
-
-        part1 = nodes1[:cut1]  
-
-        part2 = nodes2[cut2:] 
+        cut = random.choice(range(1, len(nodes1)))
+        part1 = nodes1[:cut]
+        part2 = nodes2[cut:]
+        
         child = nx.Graph()
 
-        child.add_nodes_from((n, G1.nodes[n]) for n in part1)
-        child.add_nodes_from((n, G2.nodes[n]) for n in part2)
+        child.add_nodes_from((n, G1.nodes[n]) for n in part1 if n not in child)
+        child.add_nodes_from((n, G2.nodes[n]) for n in part2 if n not in child)
 
         child.add_edges_from((u, v) for u, v in G1.edges if u in part1 and v in part1)
         child.add_edges_from((u, v) for u, v in G2.edges if u in part2 and v in part2)
+        
+        child.add_edges_from((u, v) for u, v in G1.edges if (u in part1 and v in part2) or (v in part1 and u in part2))
+        child.add_edges_from((u, v) for u, v in G2.edges if (u in part1 and v in part2) or (v in part1 and u in part2))
 
-        if not nx.is_connected(child):
-            return self
+        # if not nx.is_connected(child):
+        #     return None
         
         prepare_networkx_for_pyg(child)
         child = Individual(child)
@@ -565,7 +565,8 @@ def initialize_population(size, graphX, blackbox, case_type, DO_graphs):
     for _ in range(size):
         ind_graph = copy.deepcopy(graphX)
         individual = Individual(ind_graph).mutate(graphX, blackbox, case_type, DO_graphs)
-        population.append(individual)
+        if individual is not None:
+            population.append(individual)
     return population
 
 def select_parents(population, ratio):
@@ -575,18 +576,20 @@ def select_parents(population, ratio):
             unique[ind.fitness] = ind
     distinct = list(unique.values())
     distinct.sort(key=lambda x: x.fitness)
-    return distinct[:int(ratio * len(population))]
+    return distinct[:int(ratio * len(distinct))]
 
 def get_graphs_DO_embedding(label, dataset, blackbox):
     DO_graphs_embedding = []
     for i in range(len(dataset)):
         if dataset[i].y.item() != label:
-            # prob_X, embedding_X = blackbox.predict(dataset[i].x, dataset[i].edge_index, None)
-            # uX = F.normalize(embedding_X, p=2, dim=1)
-            # DO_graphs_embedding.append(uX)
-            G = to_networkx(dataset[i], to_undirected=True, node_attrs="x")
-            prob, _ = blackbox.predict(dataset[i].x, dataset[i].edge_index, None)
-            DO_graphs_embedding.append((G, prob))
+            logits, embedding_X = blackbox(dataset[i].x, dataset[i].edge_index, None)
+            uX = F.normalize(embedding_X, p=2, dim=1)
+            prob_X = F.softmax(logits, dim=1)
+            DO_graphs_embedding.append(logits)
+            
+            # G = to_networkx(dataset[i], to_undirected=True, node_attrs="x")
+            # prob, _ = blackbox.predict(dataset[i].x, dataset[i].edge_index, None)
+            # DO_graphs_embedding.append((G, prob))
     print("Number of graphs with different labels: ", len(DO_graphs_embedding))
     return DO_graphs_embedding
 
@@ -611,11 +614,15 @@ def genetic_algorithm(graph2X, population_size, generations, blackbox, dataset):
                 p1, p2 = random.sample(best, 2)
                 
                 child = p1.crossover(p2, graphX, blackbox, case_type, DO_graphs_embedding)
+                if child is None:
+                    continue
                 child = child.mutate(graphX, blackbox, case_type, DO_graphs_embedding)
+                if child is None:
+                    continue
                 
-                if all(abs(child.fitness - f) > 1e-8 for f in fitness_set):
+                if all(abs(child.fitness - f) > 1e-12 for f in fitness_set):
                     fitness_set.add(child.fitness)
-                new_population.append(child)
+                    new_population.append(child)
                     
             population = new_population
             

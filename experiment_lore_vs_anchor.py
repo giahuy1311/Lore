@@ -186,7 +186,7 @@ def run_experiment(blackbox, X2E, y2E, idx_record2explain, dataset, anchor_expla
         except Exception:
             pass
 
-        if attempt >= 5:
+        if attempt >= 5: 
             break
 
         attempt += 1

@@ -1,0 +1,4 @@
+- models=gcn_old
+- datasets=ba_2motifs
+- pop_size=500
+- gens=5
